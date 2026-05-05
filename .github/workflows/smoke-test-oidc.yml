@@ -1,11 +1,8 @@
 name: Smoke test - Azure OIDC
 
-# Run on demand from the Actions tab. We don't want this on every push.
 on:
   workflow_dispatch:
 
-# OIDC requires id-token: write. contents: read is the minimum to checkout.
-# Anything more is unnecessary and would be over-permissioned.
 permissions:
   id-token: write
   contents: read
@@ -31,48 +28,50 @@ jobs:
           echo "=== Logged-in identity ==="
           az account show -o json
           echo
-          echo "=== Service principal we federated to ==="
-          # signed-in-user fails for SPs (expected) - this is the SP equivalent.
+          echo "=== SP details ==="
           az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" \
             --query "{displayName:displayName, appId:appId, objectId:id}" -o json
 
-      - name: List ACR repositories
+      - name: Show role assignments granted to this SP
         run: |
-          # Find our ACR by tag, then list repos. AcrPush role includes pull/list.
-          ACR_NAME=$(az acr list \
-            --query "[?tags.project=='devsecops-lab'].name | [0]" -o tsv)
-          if [[ -z "${ACR_NAME}" ]]; then
-            echo "No ACR found with project=devsecops-lab tag. Check your Terraform applied."
-            exit 1
-          fi
-          echo "ACR: ${ACR_NAME}"
-          echo "Repositories in ACR:"
-          az acr repository list --name "${ACR_NAME}" -o table || echo "(no repositories yet, that's expected on a fresh registry)"
+          # Useful for proving least-privilege in the lab story.
+          SP_OBJECT_ID=$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)
+          echo "Roles assigned to SP ${SP_OBJECT_ID}:"
+          az role assignment list --assignee "${SP_OBJECT_ID}" --all -o table
 
-      - name: Verify AKS access
+      - name: Verify ACR access (AcrPush role)
         run: |
-          AKS_RG=$(az aks list \
-            --query "[?tags.project=='devsecops-lab'].resourceGroup | [0]" -o tsv)
-          AKS_NAME=$(az aks list \
-            --query "[?tags.project=='devsecops-lab'].name | [0]" -o tsv)
-          echo "AKS cluster: ${AKS_NAME} in ${AKS_RG}"
-          az aks get-credentials --resource-group "${AKS_RG}" --name "${AKS_NAME}" --overwrite-existing
-          # kubelogin convert is needed because the cluster has AAD-only auth.
-          # Setting up kubelogin in CI is a separate task - for the smoke test we
-          # just confirm the kubeconfig fetch worked and the cluster is reachable
-          # at the API level via az.
-          az aks show -g "${AKS_RG}" -n "${AKS_NAME}" --query "{name:name, k8s:kubernetesVersion, status:provisioningState}" -o table
+          echo "ACR: ${{ vars.ACR_NAME }} (${{ vars.ACR_LOGIN_SERVER }})"
+          # 'show' exercises read on the resource; 'repository list' exercises the data plane.
+          az acr show --name "${{ vars.ACR_NAME }}" --query "{name:name, sku:sku.name, loginServer:loginServer}" -o table
+          echo
+          echo "Repositories:"
+          az acr repository list --name "${{ vars.ACR_NAME }}" -o table || \
+            echo "(no repositories yet, that's expected on a fresh registry)"
+
+      - name: Verify AKS control-plane access
+        run: |
+          echo "AKS: ${{ vars.AKS_CLUSTER_NAME }} in RG ${{ vars.AZURE_RESOURCE_GROUP }}"
+          az aks show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_CLUSTER_NAME }}" \
+            --query "{name:name, k8s:kubernetesVersion, status:provisioningState}" -o table
 
       - name: Negative test - confirm we are NOT subscription owner
         run: |
-          # We deliberately granted only AcrPush + AKS RBAC Writer.
-          # If this command succeeds, the role assignments are too broad.
-          set +e
-          az role assignment list --assignee "${{ vars.AZURE_CLIENT_ID }}" --all -o table
-          echo
           echo "=== Attempting an action we should NOT have permission for ==="
-          # Trying to list all RGs at subscription scope should be fine (Reader-ish),
-          # but creating something at subscription scope should not be.
-          az group create --name "should-not-be-able-to-create" --location westeurope 2>&1 | head -5
-          # The expected outcome is an authorization failure. We don't fail the job on it.
-          true
+          # Subscription-scoped RG creation should fail with AuthorizationFailed.
+          # If this succeeds, the SP is over-permissioned.
+          if az group create --name "should-not-be-able-to-create-$(date +%s)" --location westeurope 2>&1 | tee /tmp/result; then
+            if grep -q "AuthorizationFailed\|does not have authorization" /tmp/result; then
+              echo "PASS: action correctly denied"
+            else
+              echo "FAIL: action succeeded - SP is over-permissioned!"
+              # Clean up the accidentally-created RG
+              RG=$(grep -oP '"name": "\K[^"]+' /tmp/result || true)
+              [[ -n "$RG" ]] && az group delete --name "$RG" --yes --no-wait || true
+              exit 1
+            fi
+          else
+            echo "PASS: action correctly denied"
+          fi
