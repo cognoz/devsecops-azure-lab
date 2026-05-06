@@ -64,15 +64,44 @@ jobs:
 
           echo "PASS: image pushed successfully via OIDC-federated SP"
 
-      - name: Verify AKS control-plane read (the role grants this)
+      - name: Install kubelogin
+        # AKS clusters with AAD-only auth (local_account_disabled=true) need kubelogin
+        # to convert kubeconfig auth to AAD tokens.
         run: |
-          # AKS RBAC Writer includes Microsoft.ContainerService/managedClusters/read,
-          # so 'az aks show' will work.
-          echo "AKS: ${{ vars.AKS_CLUSTER_NAME }} in RG ${{ vars.AZURE_RESOURCE_GROUP }}"
-          az aks show \
+          curl -sL https://github.com/Azure/kubelogin/releases/latest/download/kubelogin-linux-amd64.zip \
+            -o /tmp/kubelogin.zip
+          unzip -j /tmp/kubelogin.zip -d /tmp/
+          sudo mv /tmp/kubelogin /usr/local/bin/
+          kubelogin --version
+
+      - name: Test AKS access (kubeconfig + kubectl end-to-end)
+        run: |
+          # Cluster User Role grants listClusterUserCredential (control plane).
+          # AKS RBAC Writer grants kubectl operations (data plane).
+          # Together: minimal Azure RBAC + minimal Kubernetes RBAC = working pipeline access.
+          echo "Fetching kubeconfig..."
+          az aks get-credentials \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AKS_CLUSTER_NAME }}" \
-            --query "{name:name, k8s:kubernetesVersion, status:provisioningState}" -o table
+            --overwrite-existing
+
+          # Convert kubeconfig to use AAD tokens via kubelogin (azurecli mode reuses
+          # the credentials from the 'azure/login' step above).
+          kubelogin convert-kubeconfig -l azurecli
+
+          echo
+          echo "=== Cluster info ==="
+          kubectl cluster-info
+
+          echo
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+
+          echo
+          echo "=== Pods (all namespaces) ==="
+          kubectl get pods -A
+
+          echo "PASS: kubectl works end-to-end via OIDC"
 
       - name: Negative test - confirm we are NOT subscription owner
         run: |

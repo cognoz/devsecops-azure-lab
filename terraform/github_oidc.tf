@@ -49,3 +49,12 @@ resource "azurerm_role_assignment" "github_aks_writer" {
   role_definition_name = "Azure Kubernetes Service RBAC Writer"
   principal_id         = azuread_service_principal.github.object_id
 }
+
+# Minimal control-plane role to fetch a (user) kubeconfig.
+# Without this, 'az aks get-credentials' returns AuthorizationFailed.
+# Narrower than 'Reader' — only allows listClusterUserCredential.
+resource "azurerm_role_assignment" "github_aks_user" {
+  scope                = azurerm_kubernetes_cluster.lab.id
+  role_definition_name = "Azure Kubernetes Service Cluster User Role"
+  principal_id         = azuread_service_principal.github.object_id
+}
