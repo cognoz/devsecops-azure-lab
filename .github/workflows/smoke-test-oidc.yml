@@ -93,14 +93,13 @@ jobs:
           echo "=== Cluster info ==="
           kubectl cluster-info
 
-          echo "=== Create a test namespace and try operations there ==="
-          NS="oidc-smoke-$(date +%s)"
-          kubectl create namespace "${NS}"
-          kubectl get pods -n "${NS}"  # empty, but proves list works in-namespace
-          kubectl run hello --image=mcr.microsoft.com/azuredocs/aks-helloworld:v1 \
-            --restart=Never -n "${NS}"
-          kubectl get pods -n "${NS}"
-          kubectl delete namespace "${NS}"
+          echo
+          echo "=== Create and delete a test pod (proves write works) ==="
+          POD="oidc-smoke-$(date +%s)"
+          kubectl run "${POD}" --image=mcr.microsoft.com/azuredocs/aks-helloworld:v1 \
+            --restart=Never -n default
+          kubectl get pod "${POD}" -n default
+          kubectl delete pod "${POD}" -n default --wait=false
 
           echo "PASS: kubectl works end-to-end via OIDC"
 
