@@ -23,7 +23,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Show identity we authenticated as
+      - name: Show identity and roles
         run: |
           echo "=== Logged-in identity ==="
           az account show -o json
@@ -31,26 +31,43 @@ jobs:
           echo "=== SP details ==="
           az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" \
             --query "{displayName:displayName, appId:appId, objectId:id}" -o json
-
-      - name: Show role assignments granted to this SP
-        run: |
-          # Useful for proving least-privilege in the lab story.
+          echo
+          echo "=== Roles assigned to this SP ==="
+          # Note: this query needs Directory.Read access to resolve principalId names.
+          # The list itself works regardless.
           SP_OBJECT_ID=$(az ad sp show --id "${{ vars.AZURE_CLIENT_ID }}" --query id -o tsv)
-          echo "Roles assigned to SP ${SP_OBJECT_ID}:"
           az role assignment list --assignee "${SP_OBJECT_ID}" --all -o table
 
-      - name: Verify ACR access (AcrPush role)
+      - name: Test ACR push permission (the actual thing the role is for)
         run: |
-          echo "ACR: ${{ vars.ACR_NAME }} (${{ vars.ACR_LOGIN_SERVER }})"
-          # 'show' exercises read on the resource; 'repository list' exercises the data plane.
-          az acr show --name "${{ vars.ACR_NAME }}" --query "{name:name, sku:sku.name, loginServer:loginServer}" -o table
-          echo
-          echo "Repositories:"
-          az acr repository list --name "${{ vars.ACR_NAME }}" -o table || \
-            echo "(no repositories yet, that's expected on a fresh registry)"
+          # AcrPush gives us /pull/read and /push/write on the data plane.
+          # It deliberately does NOT include control-plane registries/read,
+          # which is why 'az acr show' returns "could not be found".
+          # That's correct least-privilege - we just push, we don't query.
+          #
+          # The right test is: can we authenticate and push a tiny image?
 
-      - name: Verify AKS control-plane access
+          echo "Logging into ACR via the federated SP..."
+          az acr login --name "${{ vars.ACR_NAME }}"
+
+          echo "Building a tiny test image..."
+          mkdir -p /tmp/smoke-test
+          cat > /tmp/smoke-test/Dockerfile <<'EOF'
+          FROM scratch
+          LABEL purpose="oidc-smoke-test"
+          EOF
+          docker build -t "${{ vars.ACR_LOGIN_SERVER }}/oidc-smoke-test:$(date +%s)" /tmp/smoke-test
+          docker tag "$(docker images -q | head -1)" "${{ vars.ACR_LOGIN_SERVER }}/oidc-smoke-test:latest"
+
+          echo "Pushing to ACR..."
+          docker push "${{ vars.ACR_LOGIN_SERVER }}/oidc-smoke-test:latest"
+
+          echo "PASS: image pushed successfully via OIDC-federated SP"
+
+      - name: Verify AKS control-plane read (the role grants this)
         run: |
+          # AKS RBAC Writer includes Microsoft.ContainerService/managedClusters/read,
+          # so 'az aks show' will work.
           echo "AKS: ${{ vars.AKS_CLUSTER_NAME }} in RG ${{ vars.AZURE_RESOURCE_GROUP }}"
           az aks show \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
@@ -60,18 +77,18 @@ jobs:
       - name: Negative test - confirm we are NOT subscription owner
         run: |
           echo "=== Attempting an action we should NOT have permission for ==="
-          # Subscription-scoped RG creation should fail with AuthorizationFailed.
-          # If this succeeds, the SP is over-permissioned.
-          if az group create --name "should-not-be-able-to-create-$(date +%s)" --location westeurope 2>&1 | tee /tmp/result; then
-            if grep -q "AuthorizationFailed\|does not have authorization" /tmp/result; then
-              echo "PASS: action correctly denied"
-            else
-              echo "FAIL: action succeeded - SP is over-permissioned!"
-              # Clean up the accidentally-created RG
-              RG=$(grep -oP '"name": "\K[^"]+' /tmp/result || true)
-              [[ -n "$RG" ]] && az group delete --name "$RG" --yes --no-wait || true
-              exit 1
-            fi
-          else
+          # Subscription-scoped RG creation must fail. If it succeeds, the SP is over-permissioned.
+          set +e
+          OUTPUT=$(az group create --name "should-not-be-able-to-create-$(date +%s)" --location westeurope 2>&1)
+          RC=$?
+          echo "$OUTPUT"
+          set -e
+
+          if echo "$OUTPUT" | grep -qE "AuthorizationFailed|does not have authorization|Forbidden"; then
             echo "PASS: action correctly denied"
+          elif [[ $RC -ne 0 ]]; then
+            echo "PASS: action failed (assuming auth-related)"
+          else
+            echo "FAIL: SP is over-permissioned!"
+            exit 1
           fi
