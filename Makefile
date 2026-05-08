@@ -54,3 +54,17 @@ outputs-github:
 	  printf "%-25s %s\n" "ACR_LOGIN_SERVER"       "$$(terraform output -raw acr_login_server)"                && \
 	  printf "%-25s %s\n" "AKS_CLUSTER_NAME"       "$$(terraform output -raw aks_cluster_name)"                && \
 	  printf "%-25s %s\n" "AZURE_RESOURCE_GROUP"   "$$(terraform output -raw resource_group_name)"
+
+sync-github-vars:
+	@command -v gh >/dev/null 2>&1 
+	@gh auth status >/dev/null 2>&1 || { echo "Not authenticated. Run: gh auth login"; exit 1; }
+	@cd $(TF_DIR) && \
+	  echo "Syncing Terraform outputs to GitHub repo variables..." && \
+	  gh variable set AZURE_CLIENT_ID         --body "$$(terraform output -raw github_actions_client_id)"         && \
+	  gh variable set AZURE_TENANT_ID         --body "$$(terraform output -raw github_actions_tenant_id)"         && \
+	  gh variable set AZURE_SUBSCRIPTION_ID   --body "$$(terraform output -raw github_actions_subscription_id)"   && \
+	  gh variable set ACR_NAME                --body "$$(terraform output -raw acr_name)"                         && \
+	  gh variable set ACR_LOGIN_SERVER        --body "$$(terraform output -raw acr_login_server)"                 && \
+	  gh variable set AKS_CLUSTER_NAME        --body "$$(terraform output -raw aks_cluster_name)"                 && \
+	  gh variable set AZURE_RESOURCE_GROUP    --body "$$(terraform output -raw resource_group_name)"              && \
+	  echo "Done."
