@@ -9,11 +9,11 @@ on:
     branches: [main]
     paths:
       - "apps/sample-api/**"
-      - ".github/workflows/build-and-publish.yml"
+      - ".github/workflows/main-workflow.yml"
   pull_request:
     paths:
       - "apps/sample-api/**"
-      - ".github/workflows/build-and-publish.yml"
+      - ".github/workflows/main-workflow.yml"
   # For manual triggers
   workflow_dispatch:
 
