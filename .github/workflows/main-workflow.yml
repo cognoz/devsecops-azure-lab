@@ -134,3 +134,25 @@ jobs:
       - name: Show built image
         run: |
           docker images "${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}"
+
+      # SBOM only generated for images that *passed* the Trivy gate. Vulnerable
+      # images don't get an SBOM since they shouldn't be shipping anyway.
+      # No 'if: always()' here — this is correct, intentional behavior.
+      - name: Generate SBOM (CycloneDX) with Syft
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 #v0.24.0
+        with:
+          image: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          format: cyclonedx-json
+          output-file: sbom-${{ matrix.variant }}.cdx.json
+          # Don't upload to GitHub Releases (we're not making releases yet)
+          upload-artifact: false
+          # Don't upload as a release-style attestation either; we'll attach it
+          # to the image with Cosign in Phase 6.
+          upload-release-assets: false
+
+      - name: Upload SBOM as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          path: sbom-${{ matrix.variant }}.cdx.json
+          retention-days: 30
