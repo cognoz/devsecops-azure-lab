@@ -21,6 +21,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  security-events: write 
 
 # Cancel superseded runs on the same ref to save minutes and ACR storage.
 concurrency:
@@ -73,7 +74,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image (no push yet)
+- name: Build image (no push yet)
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.BUILD_CONTEXT }}
@@ -82,6 +83,53 @@ jobs:
           load: true
           tags: |
             ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+
+      # ---- Trivy gate ------------------------------------------------------
+      # Production policy: fail on FIXABLE high/critical only. Unfixed CVEs
+      # in OS base packages are an irreducible floor and gating on them
+      # produces non-actionable failures.
+      - name: Trivy scan (gate on fixable HIGH/CRITICAL)
+        id: trivy_gate
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+        env:
+          # Cache the Trivy DB between runs to save ~30s.
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      # The next two steps run even if the gate failed, so we always upload
+      # the report. Without 'if: always()' a failed gate would lose its evidence.
+      - name: Trivy scan (full report -> SARIF for Security tab)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-${{ matrix.variant }}.sarif
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.variant }}.sarif
+          # Categorise per variant so vulnerable findings don't shadow hardened
+          # findings in the Security UI.
+          category: trivy-${{ matrix.variant }}
+
+      - name: Upload Trivy report as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          path: trivy-${{ matrix.variant }}.sarif
+          retention-days: 30
 
       - name: Show built image
         run: |
