@@ -83,6 +83,9 @@ jobs:
           load: true
           tags: |
             ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          # Local cache speeds up rebuilds; Buildx handles cache layering.
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,scope=${{ matrix.variant }},mode=max
 
       # ---- Trivy gate ------------------------------------------------------
       # Production policy: fail on FIXABLE high/critical only. Unfixed CVEs
@@ -154,3 +157,43 @@ jobs:
           path: ${{ github.workspace }}/sbom-${{ matrix.variant }}.cdx.json
           if-no-files-found: error
           retention-days: 30
+
+      # ---- Push to ACR -----------------------------------------------------
+      # Only reached if Trivy gate passed (vulnerable variant never gets here).
+      # We push two tags:
+      #   - immutable: <variant>-<short-sha>     (always)
+      #   - moving:    <variant>-main             (only on push to main)
+      - name: ACR login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Tag image for ACR
+        id: acr_tag
+        run: |
+          LOCAL_TAG="${APP}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}"
+          IMMUTABLE="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}:${{ steps.tag.outputs.short_sha }}"
+          docker tag "${LOCAL_TAG}" "${IMMUTABLE}"
+          echo "immutable=${IMMUTABLE}" >> "$GITHUB_OUTPUT"
+
+          # Add a moving 'main' tag only when this is a push to main.
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            MOVING="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}:main"
+            docker tag "${LOCAL_TAG}" "${MOVING}"
+            echo "moving=${MOVING}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push immutable tag
+        run: docker push "${{ steps.acr_tag.outputs.immutable }}"
+
+      - name: Push moving tag (main only)
+        if: steps.acr_tag.outputs.moving != ''
+        run: docker push "${{ steps.acr_tag.outputs.moving }}"
+
+      - name: Show pushed image digest
+        id: digest
+        run: |
+          # Capture the digest of the pushed image. We'll need this for Cosign later
+          # Signing by digest (not tag) is what makes signatures verifiable.
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.acr_tag.outputs.immutable }}" | cut -d@ -f2)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Image digest: ${DIGEST}"
+          echo "Full pinned ref: ${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${DIGEST}"
