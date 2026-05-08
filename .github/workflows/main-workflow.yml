@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Compute image tag
         id: tag
@@ -65,17 +65,17 @@ jobs:
           echo "image_repo=${APP}/${{ matrix.variant }}" >> "$GITHUB_OUTPUT"
 
       - name: Azure login (federated)
-        uses: azure/login@v2
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Build image (no push yet)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE }}
@@ -90,7 +90,7 @@ jobs:
       # produces non-actionable failures.
       - name: Trivy scan (gate on fixable HIGH/CRITICAL)
         id: trivy_gate
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
           severity: HIGH,CRITICAL
@@ -105,7 +105,7 @@ jobs:
       # the report. Without 'if: always()' a failed gate would lose its evidence.
       - name: Trivy scan (full report -> SARIF for Security tab)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
           severity: HIGH,CRITICAL
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: trivy-${{ matrix.variant }}.sarif
           # Categorise per variant so vulnerable findings don't shadow hardened
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload Trivy report as workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
           path: trivy-${{ matrix.variant }}.sarif
