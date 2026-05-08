@@ -1,0 +1,86 @@
+name: Build and publish
+
+# Triggers:
+#   - push to main: full pipeline, push to ACR with :main and :sha-<short> tags
+#   - PR: full pipeline including ACR push, with :pr-<number> tag (allows lab demo
+#     where vulnerable variant gets rejected; same pipeline runs everywhere)
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/sample-api/**"
+      - ".github/workflows/build-and-publish.yml"
+  pull_request:
+    paths:
+      - "apps/sample-api/**"
+      - ".github/workflows/build-and-publish.yml"
+
+# OIDC + read needed for everything; write on packages/security-events comes later.
+permissions:
+  id-token: write
+  contents: read
+
+# Cancel superseded runs on the same ref to save minutes and ACR storage.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Don't kill the hardened job just because vulnerable failed Trivy - we want
+      # both columns of the demo to complete independently.
+      fail-fast: false
+      matrix:
+        variant: [vulnerable, hardened]
+
+    env:
+      APP: sample-api
+      DOCKERFILE: apps/sample-api/${{ matrix.variant }}/Dockerfile
+      BUILD_CONTEXT: apps/sample-api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          # Push: 'main' on main branch, plus immutable sha tag.
+          # PR:   'pr-<number>' tag.
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            REF_TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            REF_TAG="${{ github.ref_name }}"
+          fi
+          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-6)"
+          echo "ref_tag=${REF_TAG}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "image_repo=${APP}/${{ matrix.variant }}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (federated)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: false
+          load: true
+          tags: |
+            ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+
+      - name: Show built image
+        run: |
+          docker images "${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}"
