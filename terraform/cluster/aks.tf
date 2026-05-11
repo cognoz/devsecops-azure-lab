@@ -5,12 +5,9 @@ resource "azurerm_kubernetes_cluster" "lab" {
   dns_prefix          = "aks-${local.name_prefix}"
   kubernetes_version  = var.aks_kubernetes_version
 
-  # Workload Identity foundation. Both must be true for the federated identity
-  # pattern to work later (GitHub Actions OIDC -> Azure, and pod -> Azure).
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
-  # Azure CNI Overlay: modern, doesn't burn the VNet IP space, supported by Network Policy.
   network_profile {
     network_plugin      = "azure"
     network_plugin_mode = "overlay"
@@ -20,11 +17,10 @@ resource "azurerm_kubernetes_cluster" "lab" {
     pod_cidr            = "10.244.0.0/16"
   }
 
-  # System pool. Cannot be spot. Keep it small.
   default_node_pool {
     name                         = "system"
     node_count                   = var.aks_system_node_count
-    vm_size                      = "Standard_B2s_v2"
+    vm_size                      = "Standard_B2ls_v2"
     only_critical_addons_enabled = true
     orchestrator_version         = var.aks_kubernetes_version
     upgrade_settings {
@@ -36,13 +32,11 @@ resource "azurerm_kubernetes_cluster" "lab" {
     type = "SystemAssigned"
   }
 
-  # Container Insights -> Log Analytics
   oms_agent {
     log_analytics_workspace_id      = azurerm_log_analytics_workspace.lab.id
     msi_auth_for_monitoring_enabled = true
   }
 
-  # Local accounts disabled = AAD-only auth.
   azure_active_directory_role_based_access_control {
     azure_rbac_enabled = true
     tenant_id          = data.azurerm_client_config.current.tenant_id
@@ -53,7 +47,6 @@ resource "azurerm_kubernetes_cluster" "lab" {
   tags = local.common_tags
 }
 
-# User (workload) pool: spot, autoscaler, can scale to zero overnight.
 resource "azurerm_kubernetes_cluster_node_pool" "user" {
   name                  = "user"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.lab.id
@@ -66,9 +59,8 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
 
   priority        = "Spot"
   eviction_policy = "Delete"
-  spot_max_price  = -1 # -1 = pay up to on-demand price, never get evicted on price
+  spot_max_price  = -1
 
-  # Spot pools require this taint, workloads must tolerate it.
   node_taints = ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"]
   node_labels = {
     "kubernetes.azure.com/scalesetpriority" = "spot"
@@ -77,22 +69,20 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   tags = local.common_tags
 }
 
-# Allow AKS to pull from our ACR. This is the AcrPull role on the kubelet identity.
+# AcrPull on the cluster's kubelet identity, scoped to the shared ACR.
+# ACR ID comes from shared/'s remote state.
 resource "azurerm_role_assignment" "aks_acr_pull" {
-  scope                = azurerm_container_registry.lab.id
+  scope                = local.acr_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_kubernetes_cluster.lab.kubelet_identity[0].object_id
 }
 
-# Make yourself a cluster admin via Azure RBAC. Otherwise even with kubectl creds
-# you'll be 403'd because local accounts are disabled.
 resource "azurerm_role_assignment" "aks_rbac_admin_self" {
   scope                = azurerm_kubernetes_cluster.lab.id
   role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
-# Also grant the cluster-level admin role so `az aks get-credentials` works.
 resource "azurerm_role_assignment" "aks_admin_self" {
   scope                = azurerm_kubernetes_cluster.lab.id
   role_definition_name = "Azure Kubernetes Service Cluster Admin Role"

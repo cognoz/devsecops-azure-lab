@@ -9,18 +9,8 @@ output "aks_cluster_name" {
 }
 
 output "aks_oidc_issuer_url" {
-  description = "Needed for federated workload identity setup later."
+  description = "Needed for federated workload identity setup."
   value       = azurerm_kubernetes_cluster.lab.oidc_issuer_url
-}
-
-output "acr_login_server" {
-  description = "Set as a GitHub repo variable: ACR_LOGIN_SERVER"
-  value       = azurerm_container_registry.lab.login_server
-}
-
-output "acr_name" {
-  description = "Set as a GitHub repo variable: ACR_NAME"
-  value       = azurerm_container_registry.lab.name
 }
 
 output "key_vault_uri" {
@@ -34,4 +24,16 @@ output "log_analytics_workspace_id" {
 output "kubeconfig_command" {
   description = "Run this to get kubectl access to the cluster."
   value       = "az aks get-credentials --resource-group ${azurerm_resource_group.lab.name} --name ${azurerm_kubernetes_cluster.lab.name}"
+}
+
+# Pass-through outputs from shared/ so 'make sync-github-vars' can read
+# everything from a single 'terraform output' call against cluster/.
+output "acr_name" {
+  description = "Set as a GitHub repo variable: ACR_NAME (sourced from shared/)"
+  value       = local.acr_name
+}
+
+output "acr_login_server" {
+  description = "Set as a GitHub repo variable: ACR_LOGIN_SERVER (sourced from shared/)"
+  value       = local.acr_login_server
 }
