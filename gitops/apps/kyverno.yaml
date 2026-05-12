@@ -1,0 +1,105 @@
+# ArgoCD Application installing Kyverno from the upstream Helm chart.
+#
+# Notes specific to running Kyverno via ArgoCD (per upstream docs):
+#   - syncOptions includes ServerSideApply=true: Kyverno CRDs are large
+#     and routinely exceed the 256K kubectl-client annotation limit. SSA
+#     avoids that entirely.
+#   - syncOptions includes Replace=true: chart ships CRDs in templates/
+#     (not crds/) and the standard merge of those across upgrades fails on
+#     large status subresources. Kyverno docs explicitly recommend Replace.
+#   - ignoreDifferences on aggregated ClusterRoles: Kyverno uses dynamic
+#     RBAC aggregation, so live state will not match git. Without this
+#     Argo will forever show "OutOfSync".
+#
+# Image registry override: we mirror upstream Kyverno images into the
+# shared ACR (see scripts/mirror-images.sh) and override the chart's
+# image.registry accordingly. This is the same supply-chain hygiene we
+# apply to our own images — the cluster only pulls from ACR.
+#
+# ACR login server is hardcoded below. It is owned by shared state and
+# stable across cluster rebuilds. If shared/'s lab_name or naming suffix
+# changes, update here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno
+    targetRevision: 3.8.0
+    helm:
+      releaseName: kyverno
+      values: |
+        # Single replica per component for the lab. Production would use
+        # the chart's HA preset (replicas: 3 across controllers).
+        admissionController:
+          replicas: 1
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+          initImage:
+            registry: acrdevsecopsrk964.azurecr.io
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+
+        backgroundController:
+          replicas: 1
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+
+        reportsController:
+          replicas: 1
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+
+        cleanupController:
+          replicas: 1
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - Replace=true
+
+  # Aggregated ClusterRoles drift permanently by design.
+  ignoreDifferences:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      jqPathExpressions:
+        - .rules

@@ -1,0 +1,68 @@
+# ArgoCD Application installing the Kyverno-published baseline Pod Security
+# Standard policies. These are off-the-shelf policies maintained by the Kyverno
+# team that map directly to the Kubernetes Pod Security Standards.
+#
+# We start in audit-only mode (validationFailureAction=Audit) so we get
+# PolicyReport CRs without blocking anything. Once we see what fails (Argo
+# CD itself? Kyverno? Our sample-api?) we can switch the offenders to be
+# fixed and flip individual policies to Enforce.
+#
+# Coverage at the 'baseline' profile (what this chart installs):
+#   - disallow-capabilities, disallow-host-namespaces, disallow-host-path,
+#     disallow-host-ports, disallow-host-process, disallow-privileged-containers,
+#     disallow-proc-mount, disallow-selinux, restrict-apparmor-profiles,
+#     restrict-seccomp, restrict-sysctls
+#
+# This Application installs the policies in the kyverno-policies namespace
+# (well, technically they are cluster-scoped ClusterPolicy resources — the
+# chart just lives somewhere; the namespace doesn't matter for the policies).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kyverno.github.io/kyverno/
+    chart: kyverno-policies
+    targetRevision: 3.8.0
+    helm:
+      releaseName: kyverno-policies
+      values: |
+        # 'baseline' is the relaxed PSS profile, suitable for most workloads.
+        # 'restricted' is much stricter (e.g. requires runAsNonRoot, drops ALL
+        # capabilities, etc.) — would block the vulnerable variant outright
+        # but also fights everyday workloads. Promote later if desired.
+        podSecurityStandard: baseline
+
+        # Audit-only at first. Per-policy override possible via policies block
+        # if any specific policy should enforce while others audit.
+        validationFailureAction: Audit
+
+        # Don't apply to Kyverno's own namespace, kube-system, or argocd —
+        # those run components we can't make compliant without a long fight.
+        # We can revisit this list once we see the reports.
+        background: true
+
+        # Exclude system namespaces from policy evaluation.
+        kyvernoExcludeNamespaces:
+          - kube-system
+          - kyverno
+          - argocd
+          - gatekeeper-system
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kyverno
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

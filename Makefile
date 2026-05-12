@@ -2,28 +2,34 @@
         shared-init shared-plan shared-apply shared-destroy \
         init plan apply destroy fmt validate \
         kubeconfig outputs outputs-github sync-github-vars \
-        argocd-ui argocd-password
+        argocd-ui argocd-password argocd-apps \
+        mirror-images \
+        kyverno-policies kyverno-reports
 
 TF_DIR := terraform
 
 SHARED_DIR  := $(TF_DIR)/shared
 CLUSTER_DIR := $(TF_DIR)/cluster
 
+# Default ACR name — used by mirror-images. Override:
+#   make mirror-images ACR_NAME=acrxxx
+ACR_NAME ?= acrdevsecopsrk964
+
 help:
 	@echo "Bootstrap (run once):"
 	@echo "  bootstrap          Create the storage account that holds tf state."
 	@echo ""
-	@echo "Shared lifecycle (long-lived: ACR, shared RG):"
+	@echo "Shared lifecycle (long-lived: ACR, KV, shared RG):"
 	@echo "  shared-init        terraform init for shared/"
 	@echo "  shared-plan        terraform plan for shared/"
 	@echo "  shared-apply       terraform apply for shared/"
-	@echo "  shared-destroy     terraform destroy for shared/ (rare - nukes ACR)"
+	@echo "  shared-destroy     terraform destroy for shared/ (rare - nukes ACR + KV)"
 	@echo ""
 	@echo "Cluster lifecycle (daily destroy/apply):"
 	@echo "  init               terraform init for cluster/"
 	@echo "  plan               terraform plan for cluster/"
 	@echo "  apply              terraform apply for cluster/"
-	@echo "  destroy            terraform destroy for cluster/ (preserves ACR)"
+	@echo "  destroy            terraform destroy for cluster/ (preserves ACR + KV)"
 	@echo ""
 	@echo "Operational helpers:"
 	@echo "  fmt                terraform fmt + validate across both configs"
@@ -31,8 +37,16 @@ help:
 	@echo "  outputs            Show cluster terraform outputs"
 	@echo "  outputs-github     Print GitHub repo variables, paste-ready"
 	@echo "  sync-github-vars   Push all GitHub repo variables via 'gh'"
+	@echo "  mirror-images      Mirror ArgoCD + Kyverno upstream images to shared ACR"
+	@echo ""
+	@echo "ArgoCD helpers:"
 	@echo "  argocd-ui          Port-forward ArgoCD UI to https://localhost:8080"
 	@echo "  argocd-password    Print the initial ArgoCD admin password"
+	@echo "  argocd-apps        List ArgoCD Applications and their sync/health state"
+	@echo ""
+	@echo "Kyverno helpers:"
+	@echo "  kyverno-policies   List installed Kyverno ClusterPolicy resources"
+	@echo "  kyverno-reports    Show recent PolicyReport violations across the cluster"
 
 bootstrap:
 	./scripts/bootstrap-state.sh
@@ -115,3 +129,28 @@ argocd-ui:
 argocd-password:
 	@kubectl -n argocd get secret argocd-initial-admin-secret \
 	  -o jsonpath="{.data.password}" | base64 -d && echo
+
+argocd-apps:
+	@kubectl -n argocd get applications -o wide
+
+# ---- Image mirroring -------------------------------------------------------
+
+mirror-images:
+	@ACR_NAME=$(ACR_NAME) ./scripts/mirror-images.sh
+
+# ---- Kyverno --------------------------------------------------------------
+
+kyverno-policies:
+	@kubectl get clusterpolicy -o wide
+
+kyverno-reports:
+	@echo "=== Recent policy report failures (last 50) ==="
+	@kubectl get policyreport --all-namespaces \
+	  -o json | jq -r '
+	    .items[]
+	    | .metadata.namespace as $$ns
+	    | (.results // [])
+	    | map(select(.result == "fail"))
+	    | .[]
+	    | "\($$ns)\t\(.policy)\t\(.rule)\t\(.message)"
+	  ' | head -50 | column -t -s $$'\t' || true

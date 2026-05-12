@@ -75,6 +75,18 @@ variable "argocd_chart_version" {
   default     = "9.5.13"
 }
 
+variable "argocd_apps_chart_version" {
+  description = "ArgoCD-apps Helm chart version (used to bootstrap the root app-of-apps)."
+  type        = string
+  default     = "2.0.4"
+}
+
+variable "gitops_branch" {
+  description = "Git branch ArgoCD tracks for the gitops/ directory."
+  type        = string
+  default     = "main"
+}
+
 # GitHub OIDC inputs (used by github_oidc.tf which moves over unchanged)
 variable "github_repo" {
   description = "GitHub repository in 'owner/repo' form."

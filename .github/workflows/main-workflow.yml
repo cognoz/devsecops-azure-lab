@@ -104,6 +104,13 @@ jobs:
           # Cache the Trivy DB between runs to save ~30s.
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 
+      - name: Cache Trivy DB
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae #v5.0.5
+        with:
+          path: /tmp/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ hashFiles('.github/workflows/main-workflow.yml') }}
+          restore-keys: trivy-db-${{ runner.os }}-
+
       # The next two steps run even if the gate failed, so we always upload
       # the report. Without 'if: always()' a failed gate would lose its evidence.
       - name: Trivy scan (full report -> SARIF for Security tab)
@@ -111,7 +118,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
-          severity: HIGH,CRITICAL
+          severity: MEDIUM,HIGH,CRITICAL
           format: sarif
           output: trivy-${{ matrix.variant }}.sarif
         env:

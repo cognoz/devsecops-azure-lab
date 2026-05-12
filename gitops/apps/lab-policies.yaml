@@ -1,0 +1,47 @@
+# ArgoCD Application syncing our custom Kyverno policies from this repo.
+# These are the lab-specific ClusterPolicy resources living in gitops/policies/
+# — distinct from the off-the-shelf PSS chart in kyverno-policies.yaml.
+#
+# Files synced (currently):
+#   - verify-image-signatures.yaml     keyless Cosign verification
+#   - disallow-high-cve-images.yaml    Trivy vuln attestation check
+#
+# These ClusterPolicy resources require the Kyverno CRDs to exist first,
+# so this Application depends on the kyverno Application via sync waves.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lab-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Apply this app AFTER the Kyverno install (wave 0). Wave 5 gives Kyverno
+    # CRDs time to register before we try to apply ClusterPolicy resources.
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/cognoz/devsecops-azure-lab
+    targetRevision: main
+    path: gitops/policies
+
+  destination:
+    server: https://kubernetes.default.svc
+    # ClusterPolicy is cluster-scoped; namespace is just where Argo tracks
+    # the Application object.
+    namespace: kyverno
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 2m

@@ -17,3 +17,18 @@ output "shared_resource_group_name" {
   description = "Name of the long-lived shared RG."
   value       = azurerm_resource_group.shared.name
 }
+
+output "kv_shared_id" {
+  description = "Resource ID of the shared key vault"
+  value       = azurerm_key_vault.shared.id
+}
+
+output "kv_shared_name" {
+  description = "Name of the shared key vault"
+  value       = azurerm_key_vault.shared.name
+}
+
+output "kv_shared_uri" {
+  description = "DNS name of the shared key vault (https://...vault.azure.net/)"
+  value       = azurerm_key_vault.shared.vault_uri
+}

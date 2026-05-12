@@ -20,3 +20,31 @@ locals {
   acr_name         = data.terraform_remote_state.shared.outputs.acr_name
   acr_login_server = data.terraform_remote_state.shared.outputs.acr_login_server
 }
+
+# Look up the shared KV by name from the shared state output.
+# We use a data source (not the output directly) so we get the full resource
+# object — needed for things like vault_uri in the right form, and so role
+# assignments reference a "live" resource ID rather than a string from state.
+data "azurerm_key_vault" "shared" {
+  name                = data.terraform_remote_state.shared.outputs.kv_shared_name
+  resource_group_name = data.terraform_remote_state.shared.outputs.shared_resource_group_name
+}
+
+# Data source to read the GitHub App secrets from shared KV at apply time.
+# Your Administrator role on the shared KV (granted in shared state) covers
+# read access. ArgoCD itself does not touch KV — it reads from a k8s Secret
+# that Terraform plants in the argocd namespace below.
+data "azurerm_key_vault_secret" "argocd_github_app_id" {
+  name         = "argocd-github-app-id"
+  key_vault_id = data.azurerm_key_vault.shared.id
+}
+
+data "azurerm_key_vault_secret" "argocd_github_app_installation_id" {
+  name         = "argocd-github-app-installation-id"
+  key_vault_id = data.azurerm_key_vault.shared.id
+}
+
+data "azurerm_key_vault_secret" "argocd_github_app_private_key" {
+  name         = "argocd-github-app-private-key"
+  key_vault_id = data.azurerm_key_vault.shared.id
+}

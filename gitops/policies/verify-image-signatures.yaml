@@ -1,0 +1,93 @@
+# Verify that all images from our ACR were signed by THIS repo's CI workflow.
+#
+# How this works:
+#   - For any pod admitted whose image starts with acrdevsecopsrk964.azurecr.io/,
+#     Kyverno reaches out to public Sigstore (Fulcio CA + public Rekor) and
+#     looks up the cosign signature attached to the image's manifest digest.
+#   - The signature's signing certificate must have been issued to the
+#     workload identity matching our workflow run — that is, the GitHub
+#     Actions OIDC token claims must include:
+#       subject:  https://github.com/cognoz/devsecops-azure-lab/.github/workflows/main-workflow.yml@refs/heads/...
+#       issuer:   https://token.actions.githubusercontent.com
+#   - Rekor's transparency log entry must be valid.
+#
+# Enforcement strategy:
+#   - Audit cluster-wide by default (validationFailureAction: Audit).
+#   - Enforce only in namespaces explicitly opted in via the
+#     "kyverno-verify-images: enforce" label on the Namespace object.
+#     The sample-api namespace gets this label (see gitops/sample-api/namespace.yaml).
+#
+# This split lets us prove the policy works without accidentally locking
+# ourselves out of system pods (which won't carry signatures of any kind).
+#
+# Why mutateDigest: true?
+#   - If a pod spec references the image by tag (e.g. ":main"), the digest at
+#     verification time could differ from the digest the container runtime
+#     pulls. Mutating the spec to use the digest pin closes that gap.
+#   - This is what makes "verified once, run that exact bytes" actually true.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify image signatures (keyless Cosign)
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Verifies that container images from the lab ACR were signed by the
+      project's GitHub Actions workflow using keyless Cosign (Fulcio CA +
+      public Rekor). Pods carrying images that lack a valid signature
+      traceable to the configured workflow identity are rejected in
+      namespaces labelled kyverno-verify-images=enforce.
+spec:
+  validationFailureAction: Audit
+  # Enforce in namespaces that carry the kyverno-verify-images=enforce label.
+  # Implemented via namespaceSelector below per rule (Kyverno does not have
+  # a top-level "enforce if label" knob; the closest are validationFailureAction
+  # Overrides — by namespace name — and per-rule namespaceSelector).
+  # We use validationFailureActionOverrides scoped by namespaceSelector so the
+  # selection works on labels rather than hardcoded namespace names.
+  validationFailureActionOverrides:
+    - action: Enforce
+      namespaceSelector:
+        matchLabels:
+          kyverno-verify-images: enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+
+  rules:
+    - name: verify-acr-images-signed-by-workflow
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+
+      verifyImages:
+        - imageReferences:
+            - "acrdevsecopsrk964.azurecr.io/*"
+
+          # Rewrite tag references to digest references after verification.
+          mutateDigest: true
+          # Force re-verification on every admission, don't trust cached results.
+          verifyDigest: true
+          # Fail closed if registry/Rekor unreachable.
+          required: true
+
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    # Workflow identity. The regex matches any branch in our
+                    # repo running main-workflow.yml. Tighten to only main if
+                    # you want stricter (and your PR builds will fail admission).
+                    subject: "https://github.com/cognoz/devsecops-azure-lab/.github/workflows/main-workflow.yml@refs/heads/*"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+                    # Use the public Sigstore TUF root to validate Fulcio/Rekor
+                    # trust anchors. This is the default but explicit is clearer.
+                    ctlog:
+                      url: https://rekor.sigstore.dev

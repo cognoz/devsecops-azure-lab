@@ -1,0 +1,34 @@
+# ArgoCD Application for the sample-api workload.
+# Manifests live under gitops/sample-api/ in this repo.
+#
+# Annotated with a high sync wave so this comes AFTER Kyverno policies are
+# established. Without that, the very first apply could deploy the workload
+# before the verify-image-signatures policy is active, defeating the demo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-api
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/cognoz/devsecops-azure-lab
+    targetRevision: main
+    path: gitops/sample-api
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sample-api
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

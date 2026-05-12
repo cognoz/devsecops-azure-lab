@@ -1,0 +1,131 @@
+# Dependabot configuration — opens PRs when third-party deps have updates.
+#
+# Ecosystems covered:
+#   - github-actions:  action SHAs/tags used in .github/workflows/
+#   - terraform:       provider versions in terraform/{shared,cluster}/
+#   - docker:          base images in apps/sample-api/{vulnerable,hardened}/Dockerfile
+#   - pip:             Python deps in apps/sample-api/requirements.*.txt
+#
+# NOT covered (limitations of Dependabot):
+#   - Helm chart versions referenced from ArgoCD Application manifests.
+#     Dependabot does not crawl arbitrary YAML for chart references.
+#     If you want this, switch to Renovate or write a small workflow that
+#     opens a PR when `helm search repo` finds a newer version.
+#   - ACR-mirrored image tags in scripts/mirror-images.sh. Versions in that
+#     script are pegged to chart appVersions; bump them together with the
+#     chart version when you upgrade.
+#
+# Strategy:
+#   - Weekly cadence (Monday morning) — enough cadence to stay current
+#     without drowning in PRs.
+#   - Group minor + patch updates into one PR per ecosystem. Majors come
+#     as separate PRs so they can be reviewed individually.
+#   - Limit open PRs per ecosystem to keep the noise contained.
+
+version: 2
+
+updates:
+  # ---- GitHub Actions -----------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # ---- Terraform: shared --------------------------------------------------
+  - package-ecosystem: terraform
+    directory: "/terraform/shared"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "tf(shared)"
+    labels:
+      - dependencies
+      - terraform
+    groups:
+      tf-providers-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # ---- Terraform: cluster -------------------------------------------------
+  - package-ecosystem: terraform
+    directory: "/terraform/cluster"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "tf(cluster)"
+    labels:
+      - dependencies
+      - terraform
+    groups:
+      tf-providers-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # ---- Docker: vulnerable Dockerfile --------------------------------------
+  # Skipped intentionally
+
+  # ---- Docker: hardened Dockerfile ----------------------------------------
+  - package-ecosystem: docker
+    directory: "/apps/sample-api/hardened"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "docker(hardened)"
+    labels:
+      - dependencies
+      - docker
+
+  # ---- Python: hardened requirements --------------------------------------
+  - package-ecosystem: pip
+    directory: "/apps/sample-api"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Stockholm
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(python)"
+    labels:
+      - dependencies
+      - python
+    # Dependabot picks up requirements.*.txt automatically. Group the
+    # noisy minor/patch bumps together.
+    groups:
+      python-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
