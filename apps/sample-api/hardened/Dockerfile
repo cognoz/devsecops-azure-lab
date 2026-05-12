@@ -8,7 +8,7 @@
 #   - Current pinned deps.
 
 # ----- stage 1: build -----------------------------------------------------
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -25,7 +25,7 @@ RUN python -m venv /venv && \
 
 
 # ----- stage 2: runtime ---------------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # Non-root user. Explicit UID is what Kyverno's "no UID 0" policy looks at.
 RUN groupadd --gid 10001 app && \
