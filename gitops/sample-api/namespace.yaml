@@ -1,7 +1,18 @@
+# Namespace for the sample-api workload.
+#
+# The kyverno-verify-images=enforce label is checked by the Kyverno policies
+# in gitops/policies/ — when present, those policies flip from Audit to
+# Enforce for resources in this namespace. This is how we keep the lab
+# strict where it matters (our own workload) without breaking system pods
+# that don't carry signatures.
 apiVersion: v1
 kind: Namespace
 metadata:
-  labels:
-    kubernetes.io/metadata.name: sample-api
-    kyverno-verify-images: enforce
   name: sample-api
+  labels:
+    app.kubernetes.io/part-of: devsecops-lab
+    kyverno-verify-images: enforce
+    # Pod Security Standards label — applied by the kubelet, independent of
+    # our Kyverno policies. baseline is what kyverno-policies enforces.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
