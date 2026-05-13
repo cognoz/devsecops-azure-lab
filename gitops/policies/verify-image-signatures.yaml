@@ -19,12 +19,6 @@
 #
 # This split lets us prove the policy works without accidentally locking
 # ourselves out of system pods (which won't carry signatures of any kind).
-#
-# Why mutateDigest: true?
-#   - If a pod spec references the image by tag (e.g. ":main"), the digest at
-#     verification time could differ from the digest the container runtime
-#     pulls. Mutating the spec to use the digest pin closes that gap.
-#   - This is what makes "verified once, run that exact bytes" actually true.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -70,7 +64,7 @@ spec:
             - "acrdevsecopsrk964.azurecr.io/*"
 
           # Rewrite tag references to digest references after verification.
-          mutateDigest: true
+          mutateDigest: false
           # Force re-verification on every admission, don't trust cached results.
           verifyDigest: true
           # Fail closed if registry/Rekor unreachable.
