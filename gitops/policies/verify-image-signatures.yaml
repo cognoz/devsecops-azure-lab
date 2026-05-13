@@ -48,7 +48,9 @@ spec:
             - "acrdevsecopsrk964.azurecr.io/*"
 
           mutateDigest: false
-          verifyDigest: true
+          # We already checking attestation and signature
+          # so to simplify gitops flow we won't pin digests in deployments
+          verifyDigest: false
           required: true
 
           attestors:
