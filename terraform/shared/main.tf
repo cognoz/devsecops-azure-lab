@@ -6,6 +6,8 @@ provider "azurerm" {
   }
 }
 
+data "azurerm_client_config" "current" {}
+
 locals {
   # No suffix on the RG name - we want stable, predictable naming for the
   # long-lived RG. Suffix only goes into globally-unique resources.

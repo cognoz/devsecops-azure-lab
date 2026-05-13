@@ -1,6 +1,6 @@
 locals {
   name_prefix    = "${var.lab_name}-rk964"
-  kv_shared_name = "kv-shared-${local.name_prefix}"
+  kv_shared_name = "kv-shr-${local.name_prefix}"
 }
 
 resource "azurerm_key_vault" "shared" {

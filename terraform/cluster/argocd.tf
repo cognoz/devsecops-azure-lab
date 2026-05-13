@@ -47,7 +47,18 @@ resource "helm_release" "argocd" {
   values = [
     yamlencode({
       global = {
-        domain = "argocd.local" # placeholder; only matters with ingress
+        domain = "argocd.local"
+        tolerations = [
+          {
+            key      = "kubernetes.azure.com/scalesetpriority"
+            operator = "Equal"
+            value    = "spot"
+            effect   = "NoSchedule"
+          }
+        ]
+        nodeSelector = {
+          "kubernetes.azure.com/scalesetpriority" = "spot"
+        }
       }
 
       dex = {
@@ -112,49 +123,35 @@ resource "helm_release" "argocd_root_app" {
   version   = var.argocd_apps_chart_version
   namespace = kubernetes_namespace.argocd.metadata[0].name
 
-  values = [
-    yamlencode({
-      applications = [
-        {
-          name      = "root"
-          namespace = "argocd"
-          finalizers = [
-            "resources-finalizer.argocd.argoproj.io",
-          ]
-          project = "default"
-          sources = [
-            {
-              repoURL        = "https://github.com/${var.github_repo}"
-              targetRevision = var.gitops_branch
-              path           = "gitops/apps"
-              directory = {
-                recurse = false
-              }
-            }
-          ]
-          destination = {
-            server    = "https://kubernetes.default.svc"
-            namespace = "argocd"
-          }
-          syncPolicy = {
-            automated = {
-              prune    = true
-              selfHeal = true
-            }
-            syncOptions = [
-              "CreateNamespace=true",
-            ]
-          }
-        }
-      ]
-    })
-  ]
+  values = [<<-YAML
+  applications:
+    root:
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      project: default
+      source:
+        repoURL: "https://github.com/${var.github_repo}"
+        targetRevision: "${var.gitops_branch}"
+        path: gitops/apps
+        directory:
+          recurse: false
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+  YAML
+    ]
 
   depends_on = [
     helm_release.argocd,
   ]
 }
-
 # ---------------------------------------------------------------------------
 # ArgoCD repository credentials, fed by the GitHub App stored in shared KV.
 # This Secret is what ArgoCD's repo-server reads to clone gitops/ from this repo.
