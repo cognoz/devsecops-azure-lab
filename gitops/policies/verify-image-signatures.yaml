@@ -89,5 +89,3 @@ spec:
                       url: https://rekor.sigstore.dev
                     # Use the public Sigstore TUF root to validate Fulcio/Rekor
                     # trust anchors. This is the default but explicit is clearer.
-                    ctlog:
-                      url: https://rekor.sigstore.dev
