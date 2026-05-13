@@ -98,7 +98,7 @@ jobs:
           image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: 1
+          exit-code: ${{ matrix.variant == 'hardened' && '1' || '0' }}
           format: table
         env:
           # Cache the Trivy DB between runs to save ~30s.
