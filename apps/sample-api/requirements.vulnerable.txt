@@ -3,7 +3,7 @@
 fastapi==0.95.0
 uvicorn==0.22.0
 requests==2.27.1
-urllib3==1.26.5
+urllib3==2.7.0
 pyyaml==5.1
 
 # Some transitive deps so pip won't spend eternity searching for versions
