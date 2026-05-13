@@ -111,7 +111,15 @@ spec:
               memory: 64Mi
             limits:
               memory: 128Mi
-
+        crds:
+          migration:
+            tolerations:
+              - key: kubernetes.azure.com/scalesetpriority
+                operator: Equal
+                value: spot
+                effect: NoSchedule
+            nodeSelector:
+              kubernetes.azure.com/scalesetpriority: spot
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
