@@ -3,4 +3,5 @@ kind: Namespace
 metadata:
   labels:
     kubernetes.io/metadata.name: sample-api
+    kyverno-verify-images: enforce
   name: sample-api

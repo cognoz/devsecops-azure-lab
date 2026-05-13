@@ -53,7 +53,7 @@ spec:
 
       containers:
         - name: api
-          image: acrdevsecopsrk964.azurecr.io/sample-api/hardened:main
+          image: acrdevsecopsrk964.azurecr.io/sample-api/vulnerable:main
           imagePullPolicy: Always
           ports:
             - name: http
