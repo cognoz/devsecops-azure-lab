@@ -1,0 +1,102 @@
+# Sample-api Deployment.
+#
+# Image tag: this points at the hardened :main tag (moving tag from CI).
+# To demo policy rejection, switch the image to the vulnerable variant:
+#   acrdevsecopsrk964.azurecr.io/sample-api/vulnerable:main
+# The verify-image-signatures policy will still pass (vulnerable image is
+# also signed) BUT the disallow-high-cve-images policy will reject it
+# because its Trivy attestation contains CRITICAL fixable vulns.
+#
+# Pin to digest in real production. For the lab, the moving :main tag is
+# convenient because verify-image-signatures has mutateDigest: true, so
+# Kyverno rewrites it to a digest at admission anyway.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-api
+  namespace: sample-api
+  labels:
+    app.kubernetes.io/name: sample-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-api
+        app.kubernetes.io/component: api
+    spec:
+      # Required for the spot node pool — without this the scheduler would
+      # ignore the cheap nodes. Lab choice; production would have a non-spot
+      # pool for stateful workloads.
+      tolerations:
+        - key: kubernetes.azure.com/scalesetpriority
+          operator: Equal
+          value: spot
+          effect: NoSchedule
+      nodeSelector:
+        kubernetes.azure.com/scalesetpriority: spot
+
+      # PSS "restricted" hardening at pod level. The hardened Dockerfile is
+      # already non-root with UID 10001, but stating it here is explicit and
+      # makes the policy story self-documenting.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: api
+          image: acrdevsecopsrk964.azurecr.io/sample-api/hardened:main
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # Container-level hardening — picked up by kyverno-policies baseline.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          # uvicorn writes nothing to disk, but Python may want a writable
+          # temp dir under certain conditions. emptyDir avoids any
+          # readOnlyRootFilesystem surprises.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+
+      volumes:
+        - name: tmp
+          emptyDir: {}

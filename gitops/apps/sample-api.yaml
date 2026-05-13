@@ -19,7 +19,7 @@ spec:
   source:
     repoURL: https://github.com/cognoz/devsecops-azure-lab
     targetRevision: main
-    path: apps/sample-api
+    path: gitops/sample-api
 
   destination:
     server: https://kubernetes.default.svc
