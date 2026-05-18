@@ -1,17 +1,17 @@
 # Deliberately old, vulnerable versions. Trivy will flag these.
 # Each line has at least one HIGH/CRITICAL CVE in the NVD.
-fastapi==0.136.1
-uvicorn==0.47.0
-requests==2.34.2
+fastapi==0.95.0
+uvicorn==0.22.0
+requests==2.27.1
 urllib3==1.26.5
 pyyaml==5.1
 
 # Some transitive deps so pip won't spend eternity searching for versions
-click==8.4.0
+click==8.1.3
 anyio==3.6.2
 starlette==0.26.1
-h11==0.16.0
-sniffio==1.3.1
-idna==3.15
+h11==0.14.0
+sniffio==1.3.0
+idna==3.3
 charset-normalizer==2.0.12
 certifi==2021.10.8
