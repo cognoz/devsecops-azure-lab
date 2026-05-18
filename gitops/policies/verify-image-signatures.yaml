@@ -47,9 +47,15 @@ spec:
         - imageReferences:
             - "acrdevsecopsrk964.azurecr.io/*"
 
+          # Use the AKS managed identity (same identity the kubelet uses for
+          # AcrPull) to authenticate Kyverno's signature lookup against ACR.
+          # Without this Kyverno has no credentials and returns "no signatures
+          # found" even when signatures are present in the registry.
+          imageRegistryCredentials:
+            helpers:
+              - azure
+
           mutateDigest: false
-          # We already checking attestation and signature
-          # so to simplify gitops flow we won't pin digests in deployments
           verifyDigest: false
           required: true
 
