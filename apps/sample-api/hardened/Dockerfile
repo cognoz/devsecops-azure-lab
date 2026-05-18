@@ -13,8 +13,12 @@ FROM python:3.14-slim AS builder
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-    && rm -rf /var/lib/apt/lists/*
+        gcc && \
+        apt-get upgrade -y --no-install-recommends \
+           libcap2 \
+           libsystemd0 \
+           libudev1 \
+           && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.hardened.txt requirements.txt
 
