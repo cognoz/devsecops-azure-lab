@@ -16,8 +16,13 @@
 # Namespace for ArgoCD.
 # ---------------------------------------------------------------------------
 resource "kubernetes_namespace" "argocd" {
+  depends_on = [
+    azurerm_role_assignment.aks_rbac_admin_self,
+    azurerm_role_assignment.aks_admin_self,
+  ]
   metadata {
     name = "argocd"
+
     labels = {
       "app.kubernetes.io/managed-by" = "terraform"
       "purpose"                      = "gitops-controller"
@@ -43,6 +48,13 @@ resource "helm_release" "argocd" {
 
   wait    = true
   timeout = 600
+
+  depends_on = [
+    azurerm_kubernetes_cluster_node_pool.user,
+    azurerm_role_assignment.aks_rbac_admin_self,
+    azurerm_role_assignment.aks_admin_self,
+    kubernetes_secret.argocd_github_repo,
+  ]
 
   values = [
     yamlencode({
@@ -90,9 +102,6 @@ resource "helm_release" "argocd" {
     })
   ]
 
-  depends_on = [
-    kubernetes_secret.argocd_github_repo,
-  ]
 }
 
 # ---------------------------------------------------------------------------
@@ -176,6 +185,12 @@ resource "kubernetes_secret" "argocd_github_repo" {
 
   type = "Opaque"
 
+  depends_on = [
+    azurerm_role_assignment.aks_rbac_admin_self,
+    azurerm_role_assignment.aks_admin_self,
+    kubernetes_namespace.argocd,
+  ]
+
   data = {
     type                    = "git"
     url                     = "https://github.com/${var.github_repo}"
@@ -188,5 +203,4 @@ resource "kubernetes_secret" "argocd_github_repo" {
   # Application that references it. The namespace is the only ordering
   # dependency on the k8s side (Helm release will install fine into an
   # existing namespace).
-  depends_on = [kubernetes_namespace.argocd]
 }

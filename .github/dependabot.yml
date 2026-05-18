@@ -109,7 +109,7 @@ updates:
 
   # ---- Python: hardened requirements --------------------------------------
   - package-ecosystem: pip
-    directory: "/apps/sample-api"
+    directory: "/apps/sample-api/hardened"
     schedule:
       interval: weekly
       day: monday

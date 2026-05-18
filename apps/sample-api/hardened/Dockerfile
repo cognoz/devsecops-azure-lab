@@ -15,7 +15,7 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.hardened.txt requirements.txt
+COPY requirements.txt requirements.txt
 
 # Install into a virtual env we copy into the runtime image.
 RUN python -m venv /venv && \
