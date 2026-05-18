@@ -52,7 +52,7 @@ spec:
           # Without this Kyverno has no credentials and returns "no signatures
           # found" even when signatures are present in the registry.
           imageRegistryCredentials:
-            helpers:
+            providers:
               - azure
 
           mutateDigest: false
