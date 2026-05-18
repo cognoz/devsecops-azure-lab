@@ -13,12 +13,7 @@ FROM python:3.14-slim AS builder
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc && \
-        apt-get upgrade -y --no-install-recommends \
-           libcap2 \
-           libsystemd0 \
-           libudev1 \
-           && rm -rf /var/lib/apt/lists/*
+        gcc && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.hardened.txt requirements.txt
 
@@ -30,6 +25,12 @@ RUN python -m venv /venv && \
 
 # ----- stage 2: runtime ---------------------------------------------------
 FROM python:3.14-slim AS runtime
+
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    libcap2 \
+    libsystemd0 \
+    libudev1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Non-root user. Explicit UID is what Kyverno's "no UID 0" policy looks at.
 RUN groupadd --gid 10001 app && \
