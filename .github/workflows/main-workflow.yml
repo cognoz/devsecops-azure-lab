@@ -130,16 +130,41 @@ jobs:
       # Production policy: fail on FIXABLE high/critical only. Unfixed CVEs
       # in OS base packages are an irreducible floor and gating on them
       # produces non-actionable failures.
-      - name: Trivy scan (gate on fixable HIGH/CRITICAL)
+
+      - name: Trivy scan (JSON for gating)
+        id: trivy_gate_scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.tag.outputs.local_tag }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: ${{ matrix.variant == 'hardened' && '1' || '0' }}
-          format: table
+          format: json
+          output: trivy-gate-${{ matrix.variant }}.json
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
+      
+      - name: Evaluate Trivy vulnerability gate
+        id: vuln_gate
+        shell: bash
+        run: |
+          FIXABLE_COUNT=$(jq '
+            [
+              .Results[]?.Vulnerabilities[]?
+              | select(
+                  (.Severity == "HIGH" or .Severity == "CRITICAL")
+                )
+            ] | length
+          ' trivy-gate-${{ matrix.variant }}.json)
+      
+          echo "Fixable HIGH/CRITICAL vulnerabilities: $FIXABLE_COUNT"
+      
+          if [ "$FIXABLE_COUNT" -eq 0 ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+            echo "Image PASSED vulnerability gate"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "Image FAILED vulnerability gate"
+          fi
 
       # The next two steps run even if the gate failed, so we always upload
       # the report. Without 'if: always()' a failed gate would lose its evidence.
@@ -204,6 +229,7 @@ jobs:
       # SBOM only generated for images that *passed* the Trivy gate. Vulnerable
       # images technically still get one because their gate is set to exit 0.
       - name: Generate SBOM (CycloneDX) with Syft
+        if: steps.vuln_gate.outputs.sign == 'true'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ steps.tag.outputs.local_tag }}
@@ -213,6 +239,7 @@ jobs:
           upload-release-assets: false
 
       - name: Upload SBOM as workflow artifact
+        if: steps.vuln_gate.outputs.sign == 'true'         
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
@@ -272,6 +299,7 @@ jobs:
           cosign version
 
       - name: Cosign sign image (keyless via GitHub OIDC)
+        if: steps.vuln_gate.outputs.sign == 'true'
         env:
           # Required for keyless mode in CI. Tells Cosign to use the GitHub Actions
           # OIDC token rather than prompting for an interactive browser login.
@@ -282,6 +310,7 @@ jobs:
           cosign sign "${IMAGE_REF}"
 
       - name: Cosign attest SBOM (CycloneDX, in-toto envelope, keyless)
+        if: steps.vuln_gate.outputs.sign == 'true'
         env:
           COSIGN_YES: "true"
         run: |
@@ -293,6 +322,7 @@ jobs:
             "${IMAGE_REF}"
 
       - name: Cosign attest Trivy vuln scan (keyless)
+        if: steps.vuln_gate.outputs.sign == 'true'
         env:
           COSIGN_YES: "true"
         run: |
@@ -313,6 +343,7 @@ jobs:
       # The tag-based verify is the one that actually mirrors what Kyverno
       # does at admission, and would have caught the original failure mode.
       - name: Verify signatures and attestations (by digest AND by tag)
+        if: steps.vuln_gate.outputs.sign == 'true'
         env:
           IDENTITY_REGEX: ^https://github\.com/${{ github.repository }}/\.github/workflows/
           ISSUER: https://token.actions.githubusercontent.com
