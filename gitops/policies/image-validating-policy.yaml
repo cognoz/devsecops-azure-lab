@@ -1,0 +1,71 @@
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-acr-images
+  annotations:
+    policies.kyverno.io/title: Verify image signatures (keyless Cosign, sigstore bundle)
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Verifies that images from the Azure Container Registry were signed
+      by the project's GitHub Actions workflow using keyless Cosign
+      signatures stored as Sigstore bundles / OCI referrers.
+spec:
+  webhookConfiguration:
+    timeoutSeconds: 30
+    failurePolicy: Fail
+
+  evaluation:
+    background:
+      enabled: false
+
+  validationActions:
+    - Enforce
+
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: sample-api
+
+  matchImageReferences:
+    - glob: "acrdevsecopsrk964.azurecr.io/*"
+
+  credentials:
+    secrets:
+      - acr-kyverno
+
+  images:
+    - glob: "acrdevsecopsrk964.azurecr.io/*"
+
+  attestors:
+    - name: github-actions-keyless
+      cosign:
+        keyless:
+          identities:
+            - subjectRegExp: "https://github.com/cognoz/devsecops-azure-lab/.github/workflows/main-workflow.yml@refs/heads/.*"
+              issuer: "https://token.actions.githubusercontent.com"
+
+        ctlog:
+          url: "https://rekor.sigstore.dev"
+          insecureIgnoreTlog: false
+          insecureIgnoreSCT: false
+
+  validations:
+    - expression: >-
+        images.all(i,
+          i.verified
+        )
+      message: >-
+        All images from acrdevsecopsrk964.azurecr.io must be signed
+        by the approved GitHub Actions workflow.
