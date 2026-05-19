@@ -4,6 +4,13 @@
 #   - Audit cluster-wide by default.
 #   - Enforce only in the sample-api namespace via validationFailureActionOverrides.
 #
+# Verification format:
+#   `type: SigstoreBundle` opts into Kyverno's verifier path for cosign v3+ /
+#   sigstore protobuf bundle signatures stored via the OCI 1.1 Referrers API.
+#   Without this, the default `type: Cosign` verifier looks for the legacy
+#   <repo>:sha256-<digest>.sig tag, which cosign v3 doesn't write by default,
+#   and surfaces as ".attestors[0].entries[0].keyless: no signatures found".
+#
 # NOTE: validationFailureActionOverrides only accepts a plain `namespaces` list,
 # NOT a namespaceSelector. The namespaceSelector key is silently ignored by
 # Kyverno, which is why a label-based approach does not work here.
@@ -16,15 +23,16 @@ kind: ClusterPolicy
 metadata:
   name: verify-image-signatures
   annotations:
-    policies.kyverno.io/title: Verify image signatures (keyless Cosign)
+    policies.kyverno.io/title: Verify image signatures (keyless Cosign, sigstore bundle)
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: high
     policies.kyverno.io/subject: Pod
     policies.kyverno.io/description: >-
       Verifies that container images from the lab ACR were signed by the
       project's GitHub Actions workflow using keyless Cosign (Fulcio CA +
-      public Rekor). Pods in the sample-api namespace carrying images without
-      a valid signature are rejected.
+      public Rekor) with cosign v3's sigstore protobuf bundle format. Pods
+      in the sample-api namespace carrying images without a valid signature
+      are rejected.
 spec:
   validationFailureAction: Audit
   validationFailureActionOverrides:
@@ -44,13 +52,18 @@ spec:
                 - Pod
 
       verifyImages:
-        - imageReferences:
+        # Use the sigstore-protobuf bundle verifier. This is what reads
+        # cosign v3 signatures out of OCI 1.1 referrers rather than the
+        # legacy sha256-<digest>.sig tag.
+        - type: SigstoreBundle
+
+          imageReferences:
             - "acrdevsecopsrk964.azurecr.io/*"
 
-          # Use the AKS managed identity (same identity the kubelet uses for
-          # AcrPull) to authenticate Kyverno's signature lookup against ACR.
-          # Without this Kyverno has no credentials and returns "no signatures
-          # found" even when signatures are present in the registry.
+          # Use a docker-registry secret in the kyverno namespace to
+          # authenticate signature/referrer lookups against ACR. Without
+          # this Kyverno has no credentials and would return "no signatures
+          # found" even when signatures are present.
           imageRegistryCredentials:
             secrets:
               - acr-kyverno

@@ -257,6 +257,13 @@ jobs:
       # then is discarded. The signature, cert, and Rekor proof go to ACR.
       - name: Install Cosign
         env:
+          # Cosign v3.0+ writes signatures as OCI 1.1 referring artifacts in
+          # the new sigstore protobuf bundle format. Kyverno understands this
+          # but ONLY when the policy opts in with `type: SigstoreBundle`. If
+          # you ever drop that field, Kyverno falls back to the default
+          # `type: Cosign` verifier, which looks for the legacy
+          # <repo>:sha256-<digest>.sig tag — cosign v3 doesn't write there
+          # by default, and you get "no signatures found" at admission time.
           COSIGN_VERSION: v3.0.6
         run: |
           curl -sSfL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" \
