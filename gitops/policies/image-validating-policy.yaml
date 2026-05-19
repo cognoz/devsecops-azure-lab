@@ -31,7 +31,7 @@ spec:
         kubernetes.io/metadata.name: sample-api
 
   matchImageReferences:
-    - glob: "acrdevsecopsrk964.azurecr.io/*"
+    - glob: "*"
 
   credentials:
     allowInsecureRegistry: false
@@ -59,9 +59,12 @@ spec:
 
   validations:
     - expression: >-
-        images.containers
-          .map(image, verifyImageSignatures(image, [attestors.githubactions]))
-          .all(e, e > 0)
+        object.spec.containers.all(c,
+          verifyImageSignatures(
+            c.image,
+            [attestors.githubactions]
+          ) > 0
+        )
       message: >-
-        Images from acrdevsecopsrk964.azurecr.io must be signed
-        by the approved GitHub Actions workflow.
+        All container images in namespace sample-api
+        must be signed by the approved GitHub Actions workflow.
