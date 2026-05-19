@@ -13,7 +13,7 @@ spec:
       enabled: false
 
   validationActions:
-    - Enforce
+    - Deny
 
   matchConstraints:
     resourceRules:
