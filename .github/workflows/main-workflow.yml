@@ -1,7 +1,7 @@
 name: Build and publish
 
 # Triggers:
-#   - push to main: full pipeline, push to ACR with :main and :sha-<short> tags
+#   - push to main: full pipeline, push to ACR with :main and :<short-sha> tags
 #   - PR: full pipeline including ACR push, with :pr-<number> tag (allows lab demo
 #     where vulnerable variant gets rejected; same pipeline runs everywhere)
 on:
@@ -21,7 +21,7 @@ on:
 permissions:
   id-token: write
   contents: read
-  security-events: write 
+  security-events: write
 
 # Cancel superseded runs on the same ref to save minutes and ACR storage.
 concurrency:
@@ -49,20 +49,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Compute image tag
+      - name: Compute tags
         id: tag
         run: |
-          # Push: 'main' on main branch, plus immutable sha tag.
-          # PR:   'pr-<number>' tag.
+          # Local tag (no registry) is only used by Trivy and Syft on the
+          # buildx-loaded image; nothing on the registry side ever sees it.
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             REF_TAG="pr-${{ github.event.pull_request.number }}"
           else
             REF_TAG="${{ github.ref_name }}"
           fi
           SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-6)"
-          echo "ref_tag=${REF_TAG}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "image_repo=${APP}/${{ matrix.variant }}" >> "$GITHUB_OUTPUT"
+          LOCAL_TAG="${APP}:${{ matrix.variant }}-${SHORT_SHA}"
+
+          # Registry tags fed straight into docker/build-push-action's `tags:`
+          # input (newline-separated). Always an immutable <short-sha>; plus a
+          # moving 'main' tag on push-to-main, or a pr-<n> tag on PRs.
+          REG_BASE="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}"
+          REGISTRY_TAGS="${REG_BASE}:${SHORT_SHA}"
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            REGISTRY_TAGS="${REGISTRY_TAGS}"$'\n'"${REG_BASE}:main"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            REGISTRY_TAGS="${REGISTRY_TAGS}"$'\n'"${REG_BASE}:${REF_TAG}"
+          fi
+
+          {
+            echo "short_sha=${SHORT_SHA}"
+            echo "local_tag=${LOCAL_TAG}"
+            echo "registry_tags<<EOF"
+            echo "${REGISTRY_TAGS}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Azure login (federated)
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
@@ -74,42 +91,55 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Build image (no push yet)
+      # ---- Local build for scanning ---------------------------------------
+      # Loaded into the docker daemon so Trivy/Syft can work against it BEFORE
+      # anything reaches ACR. Hardened variant: if Trivy finds fixable
+      # CRITICAL/HIGH CVEs, the workflow fails here and nothing gets pushed.
+      # Vulnerable variant: gate set to exit 0 so the broken image still gets
+      # published for the Kyverno admission demo (where the vuln attestation
+      # produced below is what causes Kyverno to reject it at runtime).
+      #
+      # NOTE: we deliberately do NOT use this load step to push. Buildx's
+      # load+tag+push round-trip can produce a digest in `docker inspect`
+      # that differs from the digest the registry actually serves for the
+      # tag, which is what previously caused Kyverno to fail with
+      # "no signatures found" — it was resolving `:main` to a different
+      # digest than the one we'd signed. The push is done in a separate
+      # step below whose `digest` output is authoritative.
+      - name: Build image locally (no push)
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE }}
           push: false
           load: true
-          tags: |
-            ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
-          # Local cache speeds up rebuilds; Buildx handles cache layering.
+          tags: ${{ steps.tag.outputs.local_tag }}
+          # Local cache speeds up rebuilds; mode=max so the registry push step
+          # below can reuse every layer.
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,scope=${{ matrix.variant }},mode=max
+
+      - name: Cache Trivy DB
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/trivy-cache
+          key: trivy-db-${{ runner.os }}-${{ hashFiles('.github/workflows/main-workflow.yml') }}
+          restore-keys: trivy-db-${{ runner.os }}-
 
       # ---- Trivy gate ------------------------------------------------------
       # Production policy: fail on FIXABLE high/critical only. Unfixed CVEs
       # in OS base packages are an irreducible floor and gating on them
       # produces non-actionable failures.
       - name: Trivy scan (gate on fixable HIGH/CRITICAL)
-        id: trivy_gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          image-ref: ${{ steps.tag.outputs.local_tag }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: ${{ matrix.variant == 'hardened' && '1' || '0' }}
           format: table
         env:
-          # Cache the Trivy DB between runs to save ~30s.
           TRIVY_CACHE_DIR: /tmp/trivy-cache
-
-      - name: Cache Trivy DB
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae #v5.0.5
-        with:
-          path: /tmp/trivy-cache
-          key: trivy-db-${{ runner.os }}-${{ hashFiles('.github/workflows/main-workflow.yml') }}
-          restore-keys: trivy-db-${{ runner.os }}-
 
       # The next two steps run even if the gate failed, so we always upload
       # the report. Without 'if: always()' a failed gate would lose its evidence.
@@ -117,7 +147,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          image-ref: ${{ steps.tag.outputs.local_tag }}
           severity: MEDIUM,HIGH,CRITICAL
           format: sarif
           output: trivy-${{ matrix.variant }}.sarif
@@ -141,17 +171,42 @@ jobs:
           path: trivy-${{ matrix.variant }}.sarif
           retention-days: 30
 
-      - name: Show built image
-        run: |
-          docker images "${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}"
-
-      # SBOM only generated for images that *passed* the Trivy gate. Vulnerable
-      # images don't get an SBOM since they shouldn't be shipping anyway.
-      # No 'if: always()' here — this is correct, intentional behavior.
-      - name: Generate SBOM (CycloneDX) with Syft
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 #v0.24.0
+      # ---- Trivy vuln predicate (for disallow-high-cve-images policy) -----
+      # Trivy's `cosign-vuln` format produces the in-toto predicate body that
+      # corresponds to predicate type https://cosign.sigstore.dev/attestation/vuln/v1
+      # — the exact type the Kyverno policy looks for. Without this step the
+      # disallow-high-cve-images policy cannot ever pass because the
+      # attestation it needs to evaluate simply isn't in the registry.
+      #
+      # No `if: always()`: if the hardened variant failed the gate we don't
+      # push, sign, or attest. Vulnerable variant always produces an
+      # attestation — that's the whole point of the lab demo (Kyverno will
+      # read it, see CRITICAL fixable CVEs, and reject the pod).
+      - name: Trivy scan (cosign-vuln predicate for attestation)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image: ${{ env.APP }}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          image-ref: ${{ steps.tag.outputs.local_tag }}
+          severity: HIGH,CRITICAL
+          format: cosign-vuln
+          output: trivy-vuln-${{ matrix.variant }}.json
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload Trivy vuln predicate as workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trivy-vuln-${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}
+          path: trivy-vuln-${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # ---- SBOM ------------------------------------------------------------
+      # SBOM only generated for images that *passed* the Trivy gate. Vulnerable
+      # images technically still get one because their gate is set to exit 0.
+      - name: Generate SBOM (CycloneDX) with Syft
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.tag.outputs.local_tag }}
           format: cyclonedx-json
           output-file: sbom-${{ matrix.variant }}.cdx.json
           upload-artifact: false
@@ -166,52 +221,40 @@ jobs:
           retention-days: 30
 
       # ---- Push to ACR -----------------------------------------------------
-      # Only reached if Trivy gate passed (vulnerable variant never gets here).
-      # We push two tags:
-      #   - immutable: <variant>-<short-sha>     (always)
-      #   - moving:    <variant>-main             (only on push to main)
+      # Separate build with push: true. Layers are reused from the GHA cache
+      # populated by the local build above (mode=max), so in practice this is
+      # effectively a manifest push and finishes in seconds.
+      #
+      # The crucial output here is `steps.push.outputs.digest`: that is the
+      # digest ACR actually returns for the pushed manifest, i.e. exactly
+      # what Kyverno will see when it resolves any of these tags at admission
+      # time. Signing against this digest guarantees the signature lives at
+      # `<repo>:sha256-<digest>.sig` for the same digest the tag resolves to.
       - name: ACR login
         run: az acr login --name "${{ vars.ACR_NAME }}"
 
-      - name: Tag image for ACR
-        id: acr_tag
-        run: |
-          LOCAL_TAG="${APP}:${{ matrix.variant }}-${{ steps.tag.outputs.short_sha }}"
-          IMMUTABLE="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}:${{ steps.tag.outputs.short_sha }}"
-          docker tag "${LOCAL_TAG}" "${IMMUTABLE}"
-          echo "immutable=${IMMUTABLE}" >> "$GITHUB_OUTPUT"
-
-          # Add a moving 'main' tag only when this is a push to main.
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            MOVING="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}:main"
-            docker tag "${LOCAL_TAG}" "${MOVING}"
-            echo "moving=${MOVING}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Push immutable tag
-        run: docker push "${{ steps.acr_tag.outputs.immutable }}"
-
-      - name: Push moving tag (main only)
-        if: steps.acr_tag.outputs.moving != ''
-        run: docker push "${{ steps.acr_tag.outputs.moving }}"
+      - name: Build and push to ACR
+        id: push
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          tags: ${{ steps.tag.outputs.registry_tags }}
+          # Read-only cache from the local build above. No cache-to needed;
+          # the previous step already wrote the cache in mode=max.
+          cache-from: type=gha,scope=${{ matrix.variant }}
 
       - name: Show pushed image digest
-        id: digest
         run: |
-          # Capture the digest of the pushed image. We'll need this for Cosign later
-          # Signing by digest (not tag) is what makes signatures verifiable.
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.acr_tag.outputs.immutable }}" | cut -d@ -f2)
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Image digest: ${DIGEST}"
-          echo "Full pinned ref: ${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${DIGEST}"
+          echo "Registry digest: ${{ steps.push.outputs.digest }}"
+          echo "Pinned ref:      ${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.push.outputs.digest }}"
 
-      # ---- Cosign keyless signing + SBOM attestation ----------------------
+      # ---- Cosign keyless signing + attestations --------------------------
       # Public Sigstore (Fulcio + public Rekor). Identity is bound to the
       # GitHub Actions OIDC token claims of THIS workflow run. There is no
       # private key anywhere - the ephemeral signing cert lives ~10 minutes,
       # then is discarded. The signature, cert, and Rekor proof go to ACR.
-
-      # Install directly, though utilizing of third party actions is also possible
       - name: Install Cosign
         env:
           COSIGN_VERSION: v3.0.6
@@ -227,7 +270,7 @@ jobs:
           # OIDC token rather than prompting for an interactive browser login.
           COSIGN_YES: "true"
         run: |
-          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.digest.outputs.digest }}"
+          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.push.outputs.digest }}"
           echo "Signing: ${IMAGE_REF}"
           cosign sign "${IMAGE_REF}"
 
@@ -235,33 +278,66 @@ jobs:
         env:
           COSIGN_YES: "true"
         run: |
-          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.digest.outputs.digest }}"
+          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.push.outputs.digest }}"
           echo "Attaching SBOM attestation to: ${IMAGE_REF}"
           cosign attest \
             --predicate "sbom-${{ matrix.variant }}.cdx.json" \
             --type cyclonedx \
             "${IMAGE_REF}"
 
-      - name: Verify signature and SBOM attestation
+      - name: Cosign attest Trivy vuln scan (keyless)
+        env:
+          COSIGN_YES: "true"
         run: |
-          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.digest.outputs.digest }}"
+          # The --type vuln shorthand produces predicate type
+          # https://cosign.sigstore.dev/attestation/vuln/v1 — what the
+          # Kyverno disallow-high-cve-images policy filters on.
+          IMAGE_REF="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.push.outputs.digest }}"
+          echo "Attaching vuln attestation to: ${IMAGE_REF}"
+          cosign attest \
+            --predicate "trivy-vuln-${{ matrix.variant }}.json" \
+            --type vuln \
+            "${IMAGE_REF}"
 
-          # Verify the image signature matches THIS workflow's identity.
-          # certificate-identity-regexp matches any branch in our repo,
-          # which is how a Kyverno policy on AKS would verify in Week 2.
-          echo "=== Verify image signature ==="
-          cosign verify \
-            --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            "${IMAGE_REF}" \
-            | jq '.[0] | {critical: .critical.identity, issuer: .optional."1.3.6.1.4.1.57264.1.1"}'
+      # ---- End-to-end verification ----------------------------------------
+      # Verify against BOTH the digest AND the immutable tag. Verifying only
+      # by digest is a tautology — we'd be checking that the signature for X
+      # exists at the location keyed by X, which is true by construction.
+      # The tag-based verify is the one that actually mirrors what Kyverno
+      # does at admission, and would have caught the original failure mode.
+      - name: Verify signatures and attestations (by digest AND by tag)
+        env:
+          IDENTITY_REGEX: ^https://github\.com/${{ github.repository }}/\.github/workflows/
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          BY_DIGEST="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}@${{ steps.push.outputs.digest }}"
+          BY_TAG="${{ vars.ACR_LOGIN_SERVER }}/${APP}/${{ matrix.variant }}:${{ steps.tag.outputs.short_sha }}"
 
-          echo
-          echo "=== Verify SBOM attestation ==="
-          cosign verify-attestation \
-            --type cyclonedx \
-            --certificate-identity-regexp "^https://github\.com/${{ github.repository }}/\.github/workflows/" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            "${IMAGE_REF}" \
-            > /dev/null
-          echo "SBOM attestation verified."
+          for REF in "${BY_DIGEST}" "${BY_TAG}"; do
+            echo "============================================================"
+            echo "Verifying ${REF}"
+            echo "============================================================"
+
+            echo "--- image signature ---"
+            cosign verify \
+              --certificate-identity-regexp "${IDENTITY_REGEX}" \
+              --certificate-oidc-issuer "${ISSUER}" \
+              "${REF}" \
+              | jq '.[0] | {identity: .critical.identity, issuer: .optional."1.3.6.1.4.1.57264.1.1"}'
+
+            echo "--- SBOM attestation ---"
+            cosign verify-attestation \
+              --type cyclonedx \
+              --certificate-identity-regexp "${IDENTITY_REGEX}" \
+              --certificate-oidc-issuer "${ISSUER}" \
+              "${REF}" > /dev/null
+            echo "OK"
+
+            echo "--- vuln attestation ---"
+            cosign verify-attestation \
+              --type vuln \
+              --certificate-identity-regexp "${IDENTITY_REGEX}" \
+              --certificate-oidc-issuer "${ISSUER}" \
+              "${REF}" > /dev/null
+            echo "OK"
+          done
