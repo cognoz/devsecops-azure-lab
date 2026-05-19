@@ -283,6 +283,7 @@ jobs:
       # private key anywhere - the ephemeral signing cert lives ~10 minutes,
       # then is discarded. The signature, cert, and Rekor proof go to ACR.
       - name: Install Cosign
+        if: steps.vuln_gate.outputs.sign == 'true'
         env:
           # Cosign v3.0+ writes signatures as OCI 1.1 referring artifacts in
           # the new sigstore protobuf bundle format. Kyverno understands this
