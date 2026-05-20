@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 # Namespace for ArgoCD.
 # ---------------------------------------------------------------------------
-resource "kubernetes_namespace" "argocd" {
+resource "kubernetes_namespace_v1" "argocd" {
   depends_on = [
     azurerm_role_assignment.aks_rbac_admin_self,
     azurerm_role_assignment.aks_admin_self,
@@ -44,7 +44,7 @@ resource "helm_release" "argocd" {
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
   version    = var.argocd_chart_version
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
+  namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
 
   wait    = true
   timeout = 600
@@ -53,7 +53,7 @@ resource "helm_release" "argocd" {
     azurerm_kubernetes_cluster_node_pool.user,
     azurerm_role_assignment.aks_rbac_admin_self,
     azurerm_role_assignment.aks_admin_self,
-    kubernetes_secret.argocd_github_repo,
+    kubernetes_secret_v1.argocd_github_repo,
   ]
 
   values = [
@@ -130,7 +130,7 @@ resource "helm_release" "argocd_root_app" {
   # argocd-apps is versioned independently from the main argo-cd chart.
   # 2.0.4 is current as of writing.
   version   = var.argocd_apps_chart_version
-  namespace = kubernetes_namespace.argocd.metadata[0].name
+  namespace = kubernetes_namespace_v1.argocd.metadata[0].name
 
   values = [<<-YAML
   applications:
@@ -171,10 +171,10 @@ resource "helm_release" "argocd_root_app" {
 #   - have data fields: url, githubAppID, githubAppInstallationID,
 #     githubAppPrivateKey
 # ---------------------------------------------------------------------------
-resource "kubernetes_secret" "argocd_github_repo" {
+resource "kubernetes_secret_v1" "argocd_github_repo" {
   metadata {
     name      = "repo-github-${replace(var.github_repo, "/", "-")}"
-    namespace = kubernetes_namespace.argocd.metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd.metadata[0].name
     labels = {
       "argocd.argoproj.io/secret-type" = "repository"
     }
@@ -188,7 +188,7 @@ resource "kubernetes_secret" "argocd_github_repo" {
   depends_on = [
     azurerm_role_assignment.aks_rbac_admin_self,
     azurerm_role_assignment.aks_admin_self,
-    kubernetes_namespace.argocd,
+    kubernetes_namespace_v1.argocd,
   ]
 
   data = {

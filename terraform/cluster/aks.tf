@@ -8,6 +8,10 @@ resource "azurerm_kubernetes_cluster" "lab" {
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
+  microsoft_defender {
+    log_analytics_workspace_id = azurerm_log_analytics_workspace.lab.id
+  }
+
   network_profile {
     network_plugin      = "azure"
     network_plugin_mode = "overlay"
