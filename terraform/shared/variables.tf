@@ -15,8 +15,27 @@ variable "lab_name" {
   }
 }
 
+variable "budget_amount_usd" {
+  description = "Subscription-scoped monthly budget cap in USD."
+  type        = number
+  default     = 150
+}
+
+variable "budget_contact_email" {
+  description = "Email recipient for budget alerts."
+  type        = string
+  default     = ""
+}
+
 variable "owner_email" {
   description = "Tag value for ownership."
   type        = string
   default     = ""
+}
+
+# Defender for Cloud — subscription-scoped plan + extensions.
+variable "defender_for_containers_enabled" {
+  description = "Enable Microsoft Defender for Containers plan on the subscription."
+  type        = bool
+  default     = true
 }

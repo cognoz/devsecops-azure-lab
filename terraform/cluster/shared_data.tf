@@ -16,9 +16,10 @@ data "terraform_remote_state" "shared" {
 
 # Hoist the outputs into locals for convenient referencing throughout cluster/.
 locals {
-  acr_id           = data.terraform_remote_state.shared.outputs.acr_id
-  acr_name         = data.terraform_remote_state.shared.outputs.acr_name
-  acr_login_server = data.terraform_remote_state.shared.outputs.acr_login_server
+  acr_id                          = data.terraform_remote_state.shared.outputs.acr_id
+  acr_name                        = data.terraform_remote_state.shared.outputs.acr_name
+  acr_login_server                = data.terraform_remote_state.shared.outputs.acr_login_server
+  defender_for_containers_enabled = data.terraform_remote_state.shared.outputs.defender_for_containers_enabled
 }
 
 # Look up the shared KV by name from the shared state output.

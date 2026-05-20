@@ -32,3 +32,8 @@ output "kv_shared_uri" {
   description = "DNS name of the shared key vault (https://...vault.azure.net/)"
   value       = azurerm_key_vault.shared.vault_uri
 }
+
+output "defender_for_containers_enabled" {
+  description = "Whether the Defender for Containers subscription plan is on. Cluster/ uses this to decide whether to attach the per-cluster Defender sensor."
+  value       = var.defender_for_containers_enabled
+}

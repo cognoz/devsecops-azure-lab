@@ -57,18 +57,6 @@ variable "log_analytics_retention_days" {
   default     = 30
 }
 
-variable "budget_amount_usd" {
-  description = "Subscription-scoped monthly budget cap in USD."
-  type        = number
-  default     = 150
-}
-
-variable "budget_contact_email" {
-  description = "Email recipient for budget alerts."
-  type        = string
-  default     = ""
-}
-
 variable "argocd_chart_version" {
   description = "ArgoCD Helm chart version."
   type        = string

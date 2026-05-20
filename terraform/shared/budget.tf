@@ -4,10 +4,13 @@
 locals {
   # Budget needs a start date that is the first of a month, in the past or current month.
   budget_start = formatdate("YYYY-MM-01", timestamp())
+  name_short_prefix  = "rk964"
 }
 
+data "azurerm_subscription" "current" {}
+
 resource "azurerm_consumption_budget_subscription" "lab" {
-  name            = "budget-${local.name_prefix}"
+  name            = "budget-${local.name_short_prefix}"
   subscription_id = data.azurerm_subscription.current.id
   amount          = var.budget_amount_usd
   time_grain      = "Monthly"
