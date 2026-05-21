@@ -33,6 +33,7 @@ spec:
     helm:
       releaseName: falco
       values: |
+        load_plugins: []
         # Modern eBPF (CO-RE): no kernel module, no driver-loader pod, no
         # privileged probe build. Requires kernel >= 5.8. AKS Ubuntu 22.04
         # ships with 5.15+ so this is safe.
@@ -78,7 +79,6 @@ spec:
             tag: 0.13.0
 
         falco:
-          load_plugins: []   # plugin is auto-loaded by 0.43+ internally; don't double-load
           rules_files:
             - /etc/falco/falco_rules.yaml
             - /etc/falco/falco_rules.local.yaml
