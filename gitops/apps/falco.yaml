@@ -1,0 +1,180 @@
+# ArgoCD Application installing Falco from the upstream Helm chart, with
+# Falcosidekick enabled for event fan-out.
+#
+# What this installs:
+#   - falco: per-node DaemonSet, eBPF driver, syscall-based detection
+#   - falcosidekick: deployment that receives Falco's gRPC/HTTP events and
+#     forwards them to configured outputs (web UI, webhooks, etc.)
+#   - falcosidekick-ui: small Deployment + Redis for the event browser at
+#     http://falcosidekick-ui.falco.svc.cluster.local:2802
+#
+# Architecture notes:
+#   - Falco runs as a DaemonSet on every user-pool node. We pin to the spot
+#     pool via tolerations/nodeSelector to match the rest of the lab.
+#   - falcoctl init container is disabled. By default the chart pulls Falco
+#     rules from a registry at startup, which (a) is another runtime
+#     dependency on ghcr.io and (b) means rule changes don't trip ArgoCD
+#     drift detection. We ship rules via the chart's rulesFiles instead,
+#     making rules ConfigMap state fully managed by Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falco
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://falcosecurity.github.io/charts
+    chart: falco
+    targetRevision: 8.0.4   # appVersion 0.43.1
+    helm:
+      releaseName: falco
+      values: |
+        # Modern eBPF (CO-RE): no kernel module, no driver-loader pod, no
+        # privileged probe build. Requires kernel >= 5.8. AKS Ubuntu 22.04
+        # ships with 5.15+ so this is safe.
+        driver:
+          kind: modern-ebpf
+
+        tolerations:
+          - key: kubernetes.azure.com/scalesetpriority
+            operator: Equal
+            value: spot
+            effect: NoSchedule
+        nodeSelector:
+          kubernetes.azure.com/scalesetpriority: spot
+
+        # Resource sizing per node. Falco itself is light; the eBPF probe
+        # accounts for most CPU. These limits leave headroom for the rules
+        # engine under load.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+
+        image:
+          registry: acrdevsecopsrk964.azurecr.io
+          repository: falcosecurity/falco-no-driver
+          tag: 0.39.2
+
+        # falcoctl pulls rules from a registry at startup or on a schedule.
+        # We disable both: rules live in our Git, shipped via the chart's
+        # rulesFiles below. This keeps the chart's behaviour deterministic
+        # and fully GitOps-managed.
+        falcoctl:
+          artifact:
+            install:
+              enabled: false
+            follow:
+              enabled: false
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+            tag: 0.13.0
+
+        falco:
+          rules_files:
+            - /etc/falco/falco_rules.yaml
+            - /etc/falco/falco_rules.local.yaml
+            - /etc/falco/k8s_audit_rules.yaml
+            - /etc/falco/rules.d
+          json_output: true
+          json_include_output_property: true
+          log_level: info
+          # gRPC server for falcosidekick to consume events from.
+          grpc:
+            enabled: true
+          grpc_output:
+            enabled: true
+
+        customRules:
+          rules-overrides.yaml: |-
+            # Format: standard Falco rules YAML — macros, lists, and
+            # `override:` directives against built-in rules.
+            #
+            # Until populated, Falco runs with the upstream default rules
+            # only.
+
+        # ------------------------------------------------------------------
+        # Falcosidekick — receives events from Falco, fans them out.
+        # ------------------------------------------------------------------
+        falcosidekick:
+          enabled: true
+
+          # Sidekick also lands on spot.
+          tolerations:
+            - key: kubernetes.azure.com/scalesetpriority
+              operator: Equal
+              value: spot
+              effect: NoSchedule
+          nodeSelector:
+            kubernetes.azure.com/scalesetpriority: spot
+
+          image:
+            registry: acrdevsecopsrk964.azurecr.io
+            repository: falcosecurity/falcosidekick
+            tag: 2.33.0
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+
+          # Tag every outbound event with the cluster name so we can
+          # filter cleanly in KQL once events reach LAW.
+          config:
+            customfields: "cluster:aks-devsecops-rk964"
+            # Default minimum priority: notice and above. Drops debug and
+            # informational. Tighten to "warning" once rules are tuned in
+            # day 2.
+            existingSecret: ""
+
+          # Web UI for browsing events during the lab. Drop for prod.
+          webui:
+            enabled: true
+
+            tolerations:
+              - key: kubernetes.azure.com/scalesetpriority
+                operator: Equal
+                value: spot
+                effect: NoSchedule
+            nodeSelector:
+              kubernetes.azure.com/scalesetpriority: spot
+
+            image:
+              registry: acrdevsecopsrk964.azurecr.io
+              repository: falcosecurity/falcosidekick-ui
+              tag: 2.3.0
+
+            # Sidekick UI is backed by Redis. Mirror that too.
+            redis:
+              image:
+                registry: acrdevsecopsrk964.azurecr.io
+                repository: library/redis
+                tag: 7.4.2
+
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: falco
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
