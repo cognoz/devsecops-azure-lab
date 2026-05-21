@@ -37,7 +37,7 @@ spec:
         # privileged probe build. Requires kernel >= 5.8. AKS Ubuntu 22.04
         # ships with 5.15+ so this is safe.
         driver:
-          kind: modern-ebpf
+          kind: modern_ebpf
 
         tolerations:
           - key: kubernetes.azure.com/scalesetpriority
