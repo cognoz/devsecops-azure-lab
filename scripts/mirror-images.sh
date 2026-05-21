@@ -39,7 +39,7 @@ ARGOCD_VERSION="v3.4.1"                # appVersion for chart 9.5.13
 KYVERNO_VERSION="v1.18.0"              # appVersion for chart 3.8.0
 ARGOCD_REDIS_VERSION="7.2.4"           # Redis bundled with ArgoCD's repo-server cache
 
-FALCONODRIVER_VERSION="0.39.2"                  
+FALCO_VERSION="0.43.1"                  
 FALCOCTL_VERSION="0.13.0"               # init/sidecar container for rule validation
 FALCOSIDEKICK_VERSION="2.33.0"          # subchart appVersion
 FALCOSIDEKICK_UI_VERSION="2.3.0"        # subchart appVersion
@@ -155,8 +155,8 @@ done
 # Falco core. We use the -no-driver variant because we run with modern-ebpf,
 # which compiles the probe at runtime via the kernel's CO-RE support rather
 # than needing a pre-built driver image.
-mirror "docker.io/falcosecurity/falco-no-driver:${FALCONODRIVER_VERSION}" \
-       "falcosecurity/falco-no-driver:${FALCONODRIVER_VERSION}"
+mirror "docker.io/falcosecurity/falco:${FALCO_VERSION}" \
+       "falcosecurity/falco:${FALCO_VERSION}"
 
 # falcoctl — installed by the chart even with artifact install/follow
 # disabled, because the rule-validation init container still uses it.

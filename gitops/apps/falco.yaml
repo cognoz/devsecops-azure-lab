@@ -60,8 +60,8 @@ spec:
 
         image:
           registry: acrdevsecopsrk964.azurecr.io
-          repository: falcosecurity/falco-no-driver
-          tag: 0.39.2
+          repository: falcosecurity/falco
+          tag: 0.43.1
 
         # falcoctl pulls rules from a registry at startup or on a schedule.
         # We disable both: rules live in our Git, shipped via the chart's
