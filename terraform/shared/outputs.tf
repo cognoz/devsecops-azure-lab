@@ -37,3 +37,8 @@ output "defender_for_containers_enabled" {
   description = "Whether the Defender for Containers subscription plan is on. Cluster/ uses this to decide whether to attach the per-cluster Defender sensor."
   value       = var.defender_for_containers_enabled
 }
+
+output "defender_export_resource_id" {
+  description = "Resource ID of the Defender continuous export automation."
+  value       = try(azurerm_security_center_automation.export_to_workspace[0].id, null)
+}

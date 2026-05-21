@@ -39,3 +39,22 @@ variable "defender_for_containers_enabled" {
   type        = bool
   default     = true
 }
+
+variable "defender_export_enabled" {
+  description = "Whether to wire Defender for Cloud continuous export into the cluster's Log Analytics workspace. Requires the cluster (and its LAW) to exist."
+  type        = bool
+  default     = true
+}
+
+# Not using cluster state to keep shared one independent
+variable "defender_export_law_resource_group" {
+  description = "Resource group of the Log Analytics workspace that Defender should export into. Defaults to the cluster RG."
+  type        = string
+  default     = "rg-devsecops-rk964"
+}
+
+variable "defender_export_law_name" {
+  description = "Name of the Log Analytics workspace that Defender should export into."
+  type        = string
+  default     = "log-devsecops-rk964"
+}
