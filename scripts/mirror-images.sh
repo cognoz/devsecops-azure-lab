@@ -39,7 +39,7 @@ ARGOCD_VERSION="v3.4.1"                # appVersion for chart 9.5.13
 KYVERNO_VERSION="v1.18.0"              # appVersion for chart 3.8.0
 ARGOCD_REDIS_VERSION="7.2.4"           # Redis bundled with ArgoCD's repo-server cache
 
-FALCO_VERSION="0.43.1"                  
+FALCO_VERSION="0.43.0"                  
 FALCOCTL_VERSION="0.13.0"               # init/sidecar container for rule validation
 FALCOSIDEKICK_VERSION="2.33.0"          # subchart appVersion
 FALCOSIDEKICK_UI_VERSION="2.3.0"        # subchart appVersion

@@ -29,7 +29,7 @@ spec:
   source:
     repoURL: https://falcosecurity.github.io/charts
     chart: falco
-    targetRevision: 8.0.4   # appVersion 0.43.1
+    targetRevision: 8.0.4   # appVersion 0.43.0
     helm:
       releaseName: falco
       values: |
@@ -62,7 +62,7 @@ spec:
         image:
           registry: acrdevsecopsrk964.azurecr.io
           repository: falcosecurity/falco
-          tag: 0.43.1
+          tag: 0.43.0
 
         # falcoctl pulls rules from a registry at startup or on a schedule.
         # We disable both: rules live in our Git, shipped via the chart's
@@ -79,6 +79,7 @@ spec:
             tag: 0.13.0
 
         falco:
+          plugins: []
           rules_files:
             - /etc/falco/falco_rules.yaml
             - /etc/falco/falco_rules.local.yaml
