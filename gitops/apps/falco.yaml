@@ -160,7 +160,7 @@ spec:
               image:
                 registry: acrdevsecopsrk964.azurecr.io
                 repository: library/redis
-                tag: 7.4.2
+                tag: 7.4.2-alpine
               tolerations:
                 - key: kubernetes.azure.com/scalesetpriority
                   operator: Equal
