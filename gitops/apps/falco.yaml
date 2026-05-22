@@ -161,6 +161,13 @@ spec:
                 registry: acrdevsecopsrk964.azurecr.io
                 repository: library/redis
                 tag: 7.4.2
+              tolerations:
+                - key: kubernetes.azure.com/scalesetpriority
+                  operator: Equal
+                  value: spot
+                  effect: NoSchedule
+              nodeSelector:
+                kubernetes.azure.com/scalesetpriority: spot
 
             resources:
               requests:
