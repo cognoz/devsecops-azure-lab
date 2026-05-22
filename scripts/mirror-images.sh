@@ -43,7 +43,7 @@ FALCO_VERSION="0.43.0"
 FALCOCTL_VERSION="0.13.0"               # init/sidecar container for rule validation
 FALCOSIDEKICK_VERSION="2.33.0"          # subchart appVersion
 FALCOSIDEKICK_UI_VERSION="2.3.0"        # subchart appVersion
-FALCOSIDEKICK_UI_REDIS_VERSION="7.4.2"  # Redis backing Falcosidekick UI
+FALCOSIDEKICK_UI_REDIS_VERSION="7.2.0-v11"  # Redis backing Falcosidekick UI
 
 # Tracks failures so we don't bail on the first one — useful for
 # diagnostic runs where you want to see all issues.
@@ -173,8 +173,8 @@ mirror "docker.io/falcosecurity/falcosidekick-ui:${FALCOSIDEKICK_UI_VERSION}" \
 
 # Falcosidekick UI's Redis backing store. Same throttling issue as
 # ArgoCD's Redis — route through docker fallback.
-mirror_via_docker "docker.io/library/redis:${FALCOSIDEKICK_UI_REDIS_VERSION}-alpine" \
-                  "library/redis:${FALCOSIDEKICK_UI_REDIS_VERSION}-alpine"
+mirror_via_docker "docker.io/redis/redis-stack:${FALCOSIDEKICK_UI_REDIS_VERSION}" \
+                  "redis/redis-stack:${FALCOSIDEKICK_UI_REDIS_VERSION}"
 
 # ---- Summary --------------------------------------------------------------
 echo "============================================================"
