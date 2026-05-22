@@ -79,7 +79,7 @@ spec:
             tag: 0.13.0
 
         falco:
-          plugins: []
+          config_files: []
           rules_files:
             - /etc/falco/falco_rules.yaml
             - /etc/falco/falco_rules.local.yaml
