@@ -110,7 +110,7 @@ spec:
             # a half-dozen sidecar binaries (mdsd, telegraf, fluent-bit) into
             # its containers at runtime — this is Microsoft-managed behaviour
             # we can't change, and the cmdlines are all known-good Azure agents.
-            - macro: user_known_drop_and_execute_in_container_conditions
+            - macro: known_drop_and_execute_activities
               condition: >
                 (container.image.repository = "mcr.microsoft.com/azuremonitor/containerinsights/ciprod")
         
