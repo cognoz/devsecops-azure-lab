@@ -96,11 +96,30 @@ spec:
 
         customRules:
           rules-overrides.yaml: |-
-            # Format: standard Falco rules YAML — macros, lists, and
-            # `override:` directives against built-in rules.
+            # ──────────────────────────────────────────────────────────────────
+            # AKS noise suppressions for Falco default ruleset.
             #
-            # Until populated, Falco runs with the upstream default rules
-            # only.
+            # Specifically NOT in any allowlist:
+            #   - sample-api/* (our own workload — must stay visible)
+            #   - defender-test/* (the test namespace for Defender demos)
+            #   - falco itself (no, we don't get a free pass)
+            # ──────────────────────────────────────────────────────────────────
+        
+            # ─── "Drop and execute new binary in container" ──────────────────
+            # ama-logs (Azure Monitor Container Insights) copies
+            # a half-dozen sidecar binaries (mdsd, telegraf, fluent-bit) into
+            # its containers at runtime — this is Microsoft-managed behaviour
+            # we can't change, and the cmdlines are all known-good Azure agents.
+            - macro: user_known_drop_and_execute_in_container_conditions
+              condition: >
+                (container.image.repository = "mcr.microsoft.com/azuremonitor/containerinsights/ciprod")
+        
+            # ─── "Contact K8S API Server From Container" ─────────────────────
+            # Fires on any pod talking to kubernetes.default.svc. ArgoCD's
+            # application-controller is the central controller of a GitOps
+            - macro: user_known_contact_k8s_api_server_activities
+              condition: >
+                (container.image.repository = "quay.io/argoproj/argocd")
 
         # ------------------------------------------------------------------
         # Falcosidekick — receives events from Falco, fans them out.
