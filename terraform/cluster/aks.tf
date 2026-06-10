@@ -1,19 +1,36 @@
-resource "azurerm_kubernetes_cluster" "lab" {
-  name                = "aks-${local.name_prefix}"
-  location            = azurerm_resource_group.lab.location
+module "aks" {
+  source = "github.com/cognoz/terraform-azurerm-aks?ref=v0.2.0"
+
   resource_group_name = azurerm_resource_group.lab.name
-  dns_prefix          = "aks-${local.name_prefix}"
+  location            = var.location
+  cluster_name        = "aks-${local.name_prefix}"
   kubernetes_version  = var.aks_kubernetes_version
 
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
 
-  # Per-node Defender sensor DaemonSet with stream to analytics workspace
-  microsoft_defender {
-    log_analytics_workspace_id = azurerm_log_analytics_workspace.lab.id
+  # System pool. only_critical_addons + max_surge 10%
+  default_node_pool = {
+    name                 = "system"
+    vm_size              = "Standard_B2ls_v2"
+    node_count           = var.aks_system_node_count
+    orchestrator_version = var.aks_kubernetes_version
   }
 
-  network_profile {
+  # User pool as a spot pool. The module auto-injects the spot taint AND label,
+  additional_node_pools = {
+    user = {
+      vm_size              = var.aks_user_vm_size
+      orchestrator_version = var.aks_kubernetes_version
+      priority             = "Spot"
+      spot_max_price       = -1
+      enable_auto_scaling  = true
+      min_count            = var.aks_user_node_min
+      max_count            = var.aks_user_node_max
+    }
+  }
+
+  network_profile = {
     network_plugin      = "azure"
     network_plugin_mode = "overlay"
     network_policy      = "calico"
@@ -22,54 +39,14 @@ resource "azurerm_kubernetes_cluster" "lab" {
     pod_cidr            = "10.244.0.0/16"
   }
 
-  default_node_pool {
-    name                         = "system"
-    node_count                   = var.aks_system_node_count
-    vm_size                      = "Standard_B2ls_v2"
-    only_critical_addons_enabled = true
-    orchestrator_version         = var.aks_kubernetes_version
-    upgrade_settings {
-      max_surge = "10%"
-    }
-  }
+  # AAD / Azure RBAC.
+  azure_rbac_enabled = true
+  aad_tenant_id      = data.azurerm_client_config.current.tenant_id
 
-  identity {
-    type = "SystemAssigned"
-  }
-
-  oms_agent {
-    log_analytics_workspace_id      = azurerm_log_analytics_workspace.lab.id
-    msi_auth_for_monitoring_enabled = true
-  }
-
-  azure_active_directory_role_based_access_control {
-    azure_rbac_enabled = true
-    tenant_id          = data.azurerm_client_config.current.tenant_id
-  }
-  local_account_disabled            = true
-  role_based_access_control_enabled = true
-
-  tags = local.common_tags
-}
-
-resource "azurerm_kubernetes_cluster_node_pool" "user" {
-  name                  = "user"
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.lab.id
-  vm_size               = var.aks_user_vm_size
-  orchestrator_version  = var.aks_kubernetes_version
-
-  auto_scaling_enabled = true
-  min_count            = var.aks_user_node_min
-  max_count            = var.aks_user_node_max
-
-  priority        = "Spot"
-  eviction_policy = "Delete"
-  spot_max_price  = -1
-
-  node_taints = ["kubernetes.azure.com/scalesetpriority=spot:NoSchedule"]
-  node_labels = {
-    "kubernetes.azure.com/scalesetpriority" = "spot"
-  }
+  # Monitoring (oms_agent) + Defender both point at the lab workspace.
+  log_analytics_workspace_id                    = azurerm_log_analytics_workspace.lab.id
+  oms_msi_auth_enabled                          = true
+  microsoft_defender_log_analytics_workspace_id = azurerm_log_analytics_workspace.lab.id
 
   tags = local.common_tags
 }
