@@ -35,13 +35,13 @@ resource "azurerm_role_assignment" "github_acr_push" {
 }
 
 resource "azurerm_role_assignment" "github_aks_writer" {
-  scope                = azurerm_kubernetes_cluster.lab.id
+  scope                = module.aks.cluster_id
   role_definition_name = "Azure Kubernetes Service RBAC Writer"
   principal_id         = azuread_service_principal.github.object_id
 }
 
 resource "azurerm_role_assignment" "github_aks_user" {
-  scope                = azurerm_kubernetes_cluster.lab.id
+  scope                = module.aks.cluster_id
   role_definition_name = "Azure Kubernetes Service Cluster User Role"
   principal_id         = azuread_service_principal.github.object_id
 }

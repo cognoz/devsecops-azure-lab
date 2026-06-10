@@ -40,6 +40,11 @@ data "azurerm_key_vault_secret" "argocd_github_app_id" {
   key_vault_id = data.azurerm_key_vault.shared.id
 }
 
+data "azurerm_log_analytics_workspace" "lab" {
+  name                = "log-${local.name_prefix}"
+  resource_group_name = data.terraform_remote_state.shared.outputs.shared_resource_group_name
+}
+
 data "azurerm_key_vault_secret" "argocd_github_app_installation_id" {
   name         = "argocd-github-app-installation-id"
   key_vault_id = data.azurerm_key_vault.shared.id

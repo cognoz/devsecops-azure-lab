@@ -3,6 +3,7 @@
 # independent of cluster/
 data "azurerm_log_analytics_workspace" "cluster" {
   count               = var.defender_for_containers_enabled && var.defender_export_enabled ? 1 : 0
+  depends_on          = [azurerm_log_analytics_workspace.lab]
   name                = var.defender_export_law_name
   resource_group_name = var.defender_export_law_resource_group
 }

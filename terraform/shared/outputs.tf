@@ -42,3 +42,7 @@ output "defender_export_resource_id" {
   description = "Resource ID of the Defender continuous export automation."
   value       = try(azurerm_security_center_automation.export_to_workspace[0].id, null)
 }
+
+output "log_analytics_workspace_id" {
+  value = azurerm_log_analytics_workspace.lab.id
+}

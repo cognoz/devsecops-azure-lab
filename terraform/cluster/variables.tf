@@ -51,12 +51,6 @@ variable "aks_user_vm_size" {
   default     = "Standard_B2s_v2"
 }
 
-variable "log_analytics_retention_days" {
-  description = "Log retention in days."
-  type        = number
-  default     = 30
-}
-
 variable "argocd_chart_version" {
   description = "ArgoCD Helm chart version."
   type        = string

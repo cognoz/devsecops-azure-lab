@@ -44,9 +44,9 @@ module "aks" {
   aad_tenant_id      = data.azurerm_client_config.current.tenant_id
 
   # Monitoring (oms_agent) + Defender both point at the lab workspace.
-  log_analytics_workspace_id                    = azurerm_log_analytics_workspace.lab.id
+  log_analytics_workspace_id                    = data.azurerm_log_analytics_workspace.lab.id
   oms_msi_auth_enabled                          = true
-  microsoft_defender_log_analytics_workspace_id = azurerm_log_analytics_workspace.lab.id
+  microsoft_defender_log_analytics_workspace_id = data.azurerm_log_analytics_workspace.lab.id
 
   tags = local.common_tags
 }
@@ -56,17 +56,17 @@ module "aks" {
 resource "azurerm_role_assignment" "aks_acr_pull" {
   scope                = local.acr_id
   role_definition_name = "AcrPull"
-  principal_id         = azurerm_kubernetes_cluster.lab.kubelet_identity[0].object_id
+  principal_id         = module.aks.kubelet_identity[0].object_id
 }
 
 resource "azurerm_role_assignment" "aks_rbac_admin_self" {
-  scope                = azurerm_kubernetes_cluster.lab.id
+  scope                = module.aks.cluster_id
   role_definition_name = "Azure Kubernetes Service RBAC Cluster Admin"
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
 resource "azurerm_role_assignment" "aks_admin_self" {
-  scope                = azurerm_kubernetes_cluster.lab.id
+  scope                = module.aks.cluster_id
   role_definition_name = "Azure Kubernetes Service Cluster Admin Role"
   principal_id         = data.azurerm_client_config.current.object_id
 }

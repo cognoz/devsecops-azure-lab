@@ -50,7 +50,7 @@ resource "helm_release" "argocd" {
   timeout = 600
 
   depends_on = [
-    azurerm_kubernetes_cluster_node_pool.user,
+    module.aks,
     azurerm_role_assignment.aks_rbac_admin_self,
     azurerm_role_assignment.aks_admin_self,
     kubernetes_secret_v1.argocd_github_repo,

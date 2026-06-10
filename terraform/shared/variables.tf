@@ -27,6 +27,12 @@ variable "budget_contact_email" {
   default     = ""
 }
 
+variable "log_analytics_retention_days" {
+  description = "Log retention in days."
+  type        = number
+  default     = 30
+}
+
 variable "owner_email" {
   description = "Tag value for ownership."
   type        = string
@@ -50,7 +56,7 @@ variable "defender_export_enabled" {
 variable "defender_export_law_resource_group" {
   description = "Resource group of the Log Analytics workspace that Defender should export into. Defaults to the cluster RG."
   type        = string
-  default     = "rg-devsecops-rk964"
+  default     = "rg-shared-devsecops"
 }
 
 variable "defender_export_law_name" {
