@@ -39,9 +39,14 @@ variable "pg_admin_password" {
   sensitive = true
 }
 
-variable "client_ip" {
+variable "home_ip" {
   type        = string
   description = "Your home/public IP for the firewall allow rule"
+}
+
+variable "office_ip" {
+  type        = string
+  description = "Your office/public IP for the firewall allow rule"
 }
 
 resource "azurerm_resource_group" "ai_lab" {
@@ -80,12 +85,20 @@ resource "azurerm_postgresql_flexible_server_database" "ragdb" {
   charset   = "utf8"
 }
 
-# Firewall: allow your laptop.
-resource "azurerm_postgresql_flexible_server_firewall_rule" "client" {
-  name             = "allow-client-ip"
+# Firewall: home
+resource "azurerm_postgresql_flexible_server_firewall_rule" "home" {
+  name             = "allow-home-ip"
   server_id        = azurerm_postgresql_flexible_server.pg.id
-  start_ip_address = var.client_ip
-  end_ip_address   = var.client_ip
+  start_ip_address = var.home_ip
+  end_ip_address   = var.home_ip
+}
+
+# Firewall: office
+resource "azurerm_postgresql_flexible_server_firewall_rule" "office" {
+  name             = "allow-office-ip"
+  server_id        = azurerm_postgresql_flexible_server.pg.id
+  start_ip_address = var.office_ip
+  end_ip_address   = var.office_ip
 }
 
 output "database_url" {

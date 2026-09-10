@@ -6,8 +6,8 @@
 crash.log
 crash.*.log
 
-terraform/rag/.venv
-terraform/rag/__pycache__
+rag/.venv
+rag/__pycache__
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
